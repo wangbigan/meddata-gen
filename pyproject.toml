@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meddata-gen"
+version = "0.1.0"
+description = "医院信息系统(HIS/EMR/LIS/RIS/ECG/ICU/病案)模拟数据生成器，含可配置的数据质量缺陷注入"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [{ name = "wbg" }]
+license = { text = "MIT" }
+keywords = ["medical", "ehr", "his", "test-data", "etl", "synthetic"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+dependencies = [
+    "psycopg2-binary>=2.9.0",
+    "click>=8.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[project.scripts]
+meddata-gen = "meddata_gen.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/local/meddata-gen"
+
+[tool.setuptools]
+packages = ["meddata_gen", "meddata_gen.core", "meddata_gen.generators", "meddata_gen.tools"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+meddata_gen = ["schema/*.sql", "seed/*.yaml"]
