@@ -179,7 +179,7 @@ meddata-gen run-all
 ## 文件结构
 
 ```
-scripts/
+meddata_gen/
 ├── meddata_gen/
 │   ├── __init__.py          # DataGenerator 组合入口
 │   ├── cli.py               # meddata-gen CLI
