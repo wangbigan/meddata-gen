@@ -51,6 +51,7 @@ DB_CONFIG = {
 | `meddata-gen generate` | 生成模拟数据 | `meddata-gen generate --scale small --seed 42` |
 | `meddata-gen run-all` | 一键 init + generate + verify | `meddata-gen run-all --scale 0.5` |
 | `meddata-gen verify` | 验证数据量、关联率、缺失率 | `meddata-gen verify` |
+| `meddata-gen assess` | 生成数据质量评估报告 (Markdown) | `meddata-gen assess -o reports/q.md` |
 | `meddata-gen reset` | 删除全部模拟数据库（高危） | `meddata-gen reset --yes` |
 | `meddata-gen docs` | 生成 markdown 数据字典 | `meddata-gen docs -o reports/dd.md` |
 
@@ -77,28 +78,91 @@ DB_CONFIG = {
 
 非 HIS 模块会自动复用 HIS 生成的 patients/staff/departments 等核心数据，确保跨库关联率真实。
 
+## 双模式数据生成
+
+### Legacy 模式（默认）
+
+按表独立填充，每个 Mixin 生成自己的表数据。适合快速生成大量测试数据。
+
+```bash
+meddata-gen generate --mode legacy --scale small
+```
+
+### Event 模式（事件驱动患者旅程）
+
+模拟真实的患者就诊流程，一次就诊产生跨系统的、有时间因果链的数据。
+
+```bash
+# 事件驱动 + PostgreSQL 输出
+meddata-gen generate --mode event --scale small
+
+# 事件驱动 + CSV 输出（无需数据库）
+meddata-gen generate --mode event --scale tiny --output-format csv --output-dir output/csv
+
+# 事件驱动 + FHIR R4 Bundle 输出
+meddata-gen generate --mode event --scale tiny --output-format fhir --output-dir output/fhir
+```
+
+**事件驱动特性：**
+- 疾病画像驱动：诊断决定检验异常模式、用药、手术概率、ICU 概率、住院天数
+- 时间因果链：申请时间 < 采集时间 < 结果时间 < 出院时间
+- 跨系统一致性：同一次就诊的 patient_id / visit_id 在所有子系统中保持一致
+
+## 多格式输出
+
+| 格式 | 说明 | CLI 选项 |
+|------|------|----------|
+| PostgreSQL | 写入 7 个独立数据库（默认） | `--output-format postgres` |
+| CSV | 输出到 `output/{system}/{table}.csv` | `--output-format csv` |
+| FHIR R4 | 每患者一个 Bundle JSON | `--output-format fhir` |
+
+## 质量评估报告
+
+生成 Markdown 格式的数据质量评估报告，包含 5 个维度：
+
+1. **统计保真度** — 年龄分布、科室住院量、检验项分布
+2. **时间一致性** — 因果逆序事件数量（结果时间 < 申请时间等）
+3. **跨系统关联率** — 各系统 `patient_id` 在 HIS 中的命中率
+4. **临床一致性** — 疾病组 vs 对照组的检验值差异（如肺炎患者 WBC 显著升高）
+5. **缺陷场景命中率** — 预定义场景实际触发的记录数与比例
+
+```bash
+meddata-gen assess -o reports/quality_report.md
+cat reports/quality_report.md
+```
+
 ## 数据库概览
 
 | 数据库 | 系统 | 核心表 | 数据量 (full) |
 |--------|------|--------|--------------|
-| `his_db` | 医院信息系统 | 患者、住院记录、门诊记录、医嘱、收费明细、药品字典、科室字典、人员字典、床位信息 | 50万+ 条 |
-| `emr_db` | 电子病历系统 | 病历文档、病程记录、入院记录、出院记录、手术记录、护理记录 | 27万+ 条 |
-| `bingan_db` | 病案系统 | 病案首页、诊断明细、手术明细、肿瘤登记 | 3.8万+ 条 |
-| `lis_db` | 检验信息系统 | 检验申请、标本、临检结果、生化结果、血液结果、微生物、药敏试验 | 56万+ 条 |
-| `ris_db` | 影像信息系统 | 影像设备、检查申请、普放报告、CT报告、MRI报告、超声报告 | 5.3万+ 条 |
-| `ecg_db` | 心电信息系统 | 心电检查、波形数据、分析结果 | 4.5万 条 |
-| `icu_monitoring_db` | ICU监护系统 | 入科记录、监护数据、报警记录、血气分析 | 56.7万+ 条 |
+| `his_db` | 医院信息系统 | 患者、住院/门诊记录、医嘱、收费明细、挂号、转科、结算、预交金、药品/科室/人员/床位字典 | 80万+ 条 |
+| `emr_db` | 电子病历系统 | 病历文档、病程记录、入院/出院/死亡记录、手术记录、会诊、护理记录、输血记录、知情同意书、护理评估 | 35万+ 条 |
+| `bingan_db` | 病案系统 | 病案首页、诊断明细、手术明细、肿瘤登记、病案借阅、质控缺陷、产科记录 | 5万+ 条 |
+| `lis_db` | 检验信息系统 | 检验申请、标本、临检/生化/血液/免疫/分子结果、微生物、药敏、报告主表、危急值、室内质控 | 65万+ 条 |
+| `ris_db` | 影像信息系统 | 检查申请、普放/CT/MRI/超声/核医学报告、介入报告、影像序列、胶片打印、设备字典 | 10万+ 条 |
+| `ecg_db` | 心电信息系统 | 心电检查、波形数据、分析结果、Holter记录/事件、运动平板记录 | 5万+ 条 |
+| `icu_monitoring_db` | ICU监护系统 | 入科记录、监护数据、呼吸机设置、出入量、血气分析、CRRT、镇静镇痛、气管插管、报警记录 | 60万+ 条 |
 
-## 数据规模
+## 数据规模（full 档位）
 
-- **患者数**: 5,000 人
-- **时间范围**: 2023-01-01 至 2024-12-31（2年）
-- **住院人次**: 8,000
-- **门诊人次**: 20,000
-- **检验申请**: 60,000
-- **影像检查**: 25,000
-- **心电检查**: 15,000
-- **ICU入科**: 2,000
+| 指标 | 数量 |
+|------|------|
+| 患者数 | 5,000 |
+| 时间范围 | 2023-01-01 ~ 2024-12-31（2年）|
+| 住院人次 | 8,000 |
+| 门诊人次 | 20,000 |
+| 挂号记录 | 30,000 |
+| 医嘱 | 120,000 |
+| 收费明细 | 300,000 |
+| 检验申请 | 60,000 |
+| 影像检查 | 25,000 |
+| 心电检查 | 15,000 |
+| Holter 记录 | 3,000 |
+| 运动平板 | 2,000 |
+| ICU 入科 | 2,000 |
+| 手术记录 | 4,000 |
+| 肿瘤登记 | 300 |
+| 总记录数 | ~260万+ 条 |
 
 ## 模拟的数据质量问题
 
@@ -120,16 +184,35 @@ DB_CONFIG = {
 | ECG | ~80% |
 | ICU | ~90% |
 
-### 3. 逻辑矛盾（~1.5%）
+### 3. 场景化缺陷注入（事件模式）
+
+与均匀随机缺陷不同，场景化缺陷模拟的是有明确业务根因的数据问题。在 `config.py` 中启用：
+
+```python
+from meddata_gen.quality.scenarios import PREDEFINED_SCENARIOS
+QUALITY_SCENARIOS = PREDEFINED_SCENARIOS
+```
+
+预定义场景：
+
+| 场景 | 目标系统/表 | 缺陷类型 | 时间范围 |
+|------|------------|---------|---------|
+| LIS 系统升级 outage | `lis_db.microbiology` | culture_result 95% 为空 | 2023-06-01 ~ 2023-06-15 |
+| RIS-HIS 接口切换映射错误 | `ris_db.exam_orders` | patient_id 5% 映射错误 | 2024-01-01 ~ 2024-01-31 |
+| ICU 监护仪时钟漂移 | `icu_monitoring_db.monitoring_data` | monitor_time 15% 时间错乱 | 2023-08-01 ~ 2023-08-15 |
+| EMR 模板复制粘贴重复 | `emr_db.progress_notes` | content 3% 批量重复 | 全时段 |
+| HIS 收费接口延迟 | `his_db.fee_items` | fee_time 8% 时间倒挂 | 2023-03-01 ~ 2023-03-10 |
+
+### 4. 逻辑矛盾（~1.5%）
 - 出院时间早于入院时间
 - 负值金额/数量
 - 极端异常值
 
-### 4. 格式不一致（~2%）
+### 5. 格式不一致（~2%）
 - 日期格式混用（`2023/01/01`、`01/01/2023`、`2023年1月1日`）
 - 编码大小写混用
 
-### 5. 编码不统一
+### 6. 编码不统一
 - ICD-10 为主，混入少量 ICD-9 历史编码
 - 同一科室在不同系统使用不同编码
 
@@ -152,11 +235,16 @@ QUALITY = {
     "format_inconsistency_rate": 0.02,    # 格式不一致比例
 }
 
+# 场景化缺陷（默认禁用）
+QUALITY_SCENARIOS = []  # 设为 PREDEFINED_SCENARIOS 启用
+
 # 随机种子（可复现生成）
 RANDOM_SEED = 42
 ```
 
 ## Python API
+
+### Legacy 模式
 
 ```python
 from meddata_gen import DataGenerator
@@ -165,6 +253,32 @@ from meddata_gen.config import DB_CONFIG
 gen = DataGenerator(DB_CONFIG, seed=42).connect("his_db")
 gen.generate_patients(5000)
 gen.close()
+```
+
+### Event 模式
+
+```python
+from meddata_gen.generators.event_driven import EventDrivenGenerator
+from meddata_gen.config import DB_CONFIG
+
+gen = EventDrivenGenerator(DB_CONFIG, seed=42)
+gen.generate_departments()
+gen.generate_staff(200)
+gen.generate_drugs(500)
+gen.generate_patients(5000)
+gen.generate_beds()
+gen.generate_journeys(inpatient_count=8000, outpatient_count=20000)
+```
+
+### 质量评估
+
+```python
+from meddata_gen.quality.assessor import QualityAssessor
+from meddata_gen.config import DB_CONFIG
+
+assessor = QualityAssessor(DB_CONFIG)
+report = assessor.run()
+print(report)
 ```
 
 ## 重新生成
@@ -181,25 +295,52 @@ meddata-gen run-all
 ```
 meddata_gen/
 ├── meddata_gen/
-│   ├── __init__.py          # DataGenerator 组合入口
-│   ├── cli.py               # meddata-gen CLI
-│   ├── config.py            # 数据库连接、数据规模、质量配置
-│   ├── seed_data.py         # 种子数据字典
-│   ├── schema/              # 7 个子系统的 DDL SQL
+│   ├── __init__.py              # DataGenerator / EventDrivenGenerator 入口
+│   ├── cli.py                   # meddata-gen CLI（7 个子命令）
+│   ├── config.py                # 数据库连接、数据规模、质量配置
+│   ├── seed_data.py             # 种子数据字典
+│   ├── schema/                  # 7 个子系统的 DDL SQL
 │   ├── core/
-│   │   ├── base.py          # BaseGenerator（连接、缺陷注入工具）
-│   │   └── orchestrator.py  # 多模块编排器
+│   │   ├── base.py              # BaseGenerator（连接、缺陷注入工具）
+│   │   ├── orchestrator.py      # 多模块编排器（Legacy/Event 双模式）
+│   │   ├── events.py            # 事件模型（MedicalEvent / EventContext）
+│   │   ├── journey_builder.py   # 患者旅程构建器
+│   │   ├── materializer.py      # 事件物化层（事件 → 行数据 → 输出）
+│   │   ├── handlers/            # 各系统事件处理器
+│   │   │   ├── _common.py       # Handler 公共工具
+│   │   │   ├── his_handlers.py
+│   │   │   ├── lis_handlers.py
+│   │   │   ├── ris_handlers.py
+│   │   │   ├── emr_handlers.py
+│   │   │   ├── bingan_handlers.py
+│   │   │   ├── icu_handlers.py
+│   │   │   └── ecg_handlers.py
 │   ├── generators/
-│   │   ├── his.py           # HIS 生成器 Mixin
-│   │   ├── emr.py           # EMR 生成器 Mixin
-│   │   ├── bingan.py        # 病案生成器 Mixin
-│   │   ├── lis.py           # LIS 生成器 Mixin
-│   │   ├── ris.py           # RIS 生成器 Mixin
-│   │   ├── ecg.py           # ECG 生成器 Mixin
-│   │   └── icu.py           # ICU 生成器 Mixin
+│   │   ├── his.py               # HIS 生成器 Mixin（12 个方法）
+│   │   ├── emr.py               # EMR 生成器 Mixin（12 个方法）
+│   │   ├── bingan.py            # 病案生成器 Mixin（7 个方法）
+│   │   ├── lis.py               # LIS 生成器 Mixin（12 个方法）
+│   │   ├── ris.py               # RIS 生成器 Mixin（10 个方法）
+│   │   ├── ecg.py               # ECG 生成器 Mixin（6 个方法）
+│   │   ├── icu.py               # ICU 生成器 Mixin（9 个方法）
+│   │   └── event_driven.py      # EventDrivenGenerator
+│   ├── clinical/
+│   │   ├── disease_profiles.py  # 疾病画像定义
+│   │   └── lab_generator.py     # 疾病感知检验值生成器
+│   ├── quality/
+│   │   ├── scenarios.py         # 场景化缺陷定义
+│   │   ├── defect_engine.py     # 缺陷注入引擎
+│   │   ├── assessor.py          # 质量评估器
+│   │   └── metrics.py           # 质量指标数据结构
+│   ├── output/
+│   │   ├── base.py              # OutputWriter 抽象基类
+│   │   ├── postgres.py          # PostgreSQL 写入器
+│   │   ├── csv.py               # CSV 写入器
+│   │   └── fhir.py              # FHIR R4 Bundle 写入器
 │   └── tools/
-│       └── data_dict.py     # 数据字典生成工具
-├── run_all.py               # 旧入口兼容外壳（调用 meddata_gen）
+│       └── data_dict.py         # 数据字典生成工具
+├── docs/
+│   └── CLI.md                   # CLI 详细文档
 ├── pyproject.toml
 ├── requirements.txt
 └── README.md
@@ -225,4 +366,17 @@ SELECT
     (SELECT COUNT(*) FROM emr_db.public.emr_documents
      WHERE patient_id IN (SELECT patient_id FROM his_db.public.patients)) * 1.0 /
     (SELECT COUNT(*) FROM emr_db.public.emr_documents);
+
+-- 事件模式：验证时间因果（检验结果时间 >= 申请时间）
+SELECT COUNT(*) FROM lis_db.public.routine_results r
+JOIN lis_db.public.lab_orders o ON o.order_id = r.order_id
+WHERE r.result_time < o.order_time;
+
+-- 事件模式：验证肺炎患者的 WBC 均值
+SELECT AVG(result_num) FROM lis_db.public.routine_results
+WHERE item_name = '白细胞计数'
+  AND patient_id IN (
+      SELECT patient_id FROM his_db.public.inpatient_visits
+      WHERE admission_diagnosis LIKE '%肺炎%'
+  );
 ```
