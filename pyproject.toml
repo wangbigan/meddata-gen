@@ -37,7 +37,16 @@ meddata-gen = "meddata_gen.cli:main"
 Homepage = "https://github.com/local/meddata-gen"
 
 [tool.setuptools]
-packages = ["meddata_gen", "meddata_gen.core", "meddata_gen.generators", "meddata_gen.tools"]
+packages = [
+    "meddata_gen",
+    "meddata_gen.core",
+    "meddata_gen.core.handlers",
+    "meddata_gen.generators",
+    "meddata_gen.tools",
+    "meddata_gen.clinical",
+    "meddata_gen.quality",
+    "meddata_gen.output",
+]
 include-package-data = true
 
 [tool.setuptools.package-data]

@@ -246,10 +246,148 @@ COMMENT ON COLUMN tumor_registry.survival_status IS '生存状态：存活/死�
 COMMENT ON COLUMN tumor_registry.survival_months IS '生存时间（月）';
 COMMENT ON COLUMN tumor_registry.create_time IS '记录创建时间';
 
-CREATE INDEX idx_mr_patient_id ON medical_records(patient_id);
-CREATE INDEX idx_mr_visit_id ON medical_records(visit_id);
-CREATE INDEX idx_mr_record_no ON medical_records(medical_record_no);
-CREATE INDEX idx_diagnosis_record_id ON diagnoses(record_id);
-CREATE INDEX idx_diagnosis_icd ON diagnoses(diagnosis_icd);
-CREATE INDEX idx_surgery_record_id ON surgeries(record_id);
-CREATE INDEX idx_tumor_patient_id ON tumor_registry(patient_id);
+CREATE INDEX IF NOT EXISTS idx_mr_patient_id ON medical_records(patient_id);
+CREATE INDEX IF NOT EXISTS idx_mr_visit_id ON medical_records(visit_id);
+CREATE INDEX IF NOT EXISTS idx_mr_record_no ON medical_records(medical_record_no);
+CREATE INDEX IF NOT EXISTS idx_diagnosis_record_id ON diagnoses(record_id);
+CREATE INDEX IF NOT EXISTS idx_diagnosis_icd ON diagnoses(diagnosis_icd);
+CREATE INDEX IF NOT EXISTS idx_surgery_record_id ON surgeries(record_id);
+CREATE INDEX IF NOT EXISTS idx_tumor_patient_id ON tumor_registry(patient_id);
+
+-- ----- 批次1: 现有表补充字段 -----
+
+ALTER TABLE medical_records ADD COLUMN IF NOT EXISTS admission_count INTEGER;
+ALTER TABLE medical_records ADD COLUMN IF NOT EXISTS transfusion_count INTEGER;
+ALTER TABLE medical_records ADD COLUMN IF NOT EXISTS transfusion_reaction TEXT;
+ALTER TABLE medical_records ADD COLUMN IF NOT EXISTS autopsy_flag CHAR(1);
+ALTER TABLE medical_records ADD COLUMN IF NOT EXISTS pathology_no VARCHAR(30);
+ALTER TABLE medical_records ADD COLUMN IF NOT EXISTS drg_weight DECIMAL(6,4);
+ALTER TABLE medical_records ADD COLUMN IF NOT EXISTS insurance_settlement_type VARCHAR(20);
+
+-- ----- 批次2: 新增表 -----
+
+-- 病案借阅记录
+CREATE TABLE IF NOT EXISTS medical_record_borrows (
+    borrow_id VARCHAR(20) PRIMARY KEY,
+    record_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    borrower_name VARCHAR(50),
+    borrower_dept VARCHAR(100),
+    borrower_phone VARCHAR(20),
+    borrow_time TIMESTAMP,
+    expected_return_time TIMESTAMP,
+    return_time TIMESTAMP,
+    borrow_purpose TEXT,
+    status VARCHAR(20),                 -- 借阅中/已归还/已逾期/已续借
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE medical_record_borrows IS '病案借阅记录：病案管理核心功能（今创/曼荼罗均有）';
+COMMENT ON COLUMN medical_record_borrows.borrow_id IS '借阅主键ID';
+COMMENT ON COLUMN medical_record_borrows.record_id IS '关联病案首页ID';
+COMMENT ON COLUMN medical_record_borrows.patient_id IS '患者ID';
+COMMENT ON COLUMN medical_record_borrows.borrower_name IS '借阅人姓名';
+COMMENT ON COLUMN medical_record_borrows.borrower_dept IS '借阅人科室';
+COMMENT ON COLUMN medical_record_borrows.borrower_phone IS '借阅人电话';
+COMMENT ON COLUMN medical_record_borrows.borrow_time IS '借阅时间';
+COMMENT ON COLUMN medical_record_borrows.expected_return_time IS '预计归还时间';
+COMMENT ON COLUMN medical_record_borrows.return_time IS '实际归还时间';
+COMMENT ON COLUMN medical_record_borrows.borrow_purpose IS '借阅目的';
+COMMENT ON COLUMN medical_record_borrows.status IS '借阅状态：借阅中/已归还/已逾期/已续借';
+COMMENT ON COLUMN medical_record_borrows.create_time IS '记录创建时间';
+
+-- 病案质控缺陷
+CREATE TABLE IF NOT EXISTS qc_defects (
+    defect_id VARCHAR(20) PRIMARY KEY,
+    record_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    defect_type VARCHAR(30),            -- 首页/病程/医嘱/知情同意/签名/其他
+    defect_item VARCHAR(200),           -- 缺陷条目
+    severity VARCHAR(20),               -- 甲/乙/丙/单项否决
+    description TEXT,
+    qc_doctor_id VARCHAR(20),
+    qc_time TIMESTAMP,
+    is_rectified CHAR(1),               -- 是否整改 Y/N
+    rectify_time TIMESTAMP,
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE qc_defects IS '病案质控缺陷：质控评分细则（曼荼罗系统有独立缺陷库）';
+COMMENT ON COLUMN qc_defects.defect_id IS '缺陷主键ID';
+COMMENT ON COLUMN qc_defects.record_id IS '关联病案首页ID';
+COMMENT ON COLUMN qc_defects.patient_id IS '患者ID';
+COMMENT ON COLUMN qc_defects.defect_type IS '缺陷类型：首页/病程/医嘱/知情同意/签名/其他';
+COMMENT ON COLUMN qc_defects.defect_item IS '缺陷条目名称';
+COMMENT ON COLUMN qc_defects.severity IS '严重程度：甲/乙/丙/单项否决';
+COMMENT ON COLUMN qc_defects.description IS '缺陷描述';
+COMMENT ON COLUMN qc_defects.qc_doctor_id IS '质控医生ID';
+COMMENT ON COLUMN qc_defects.qc_time IS '质控时间';
+COMMENT ON COLUMN qc_defects.is_rectified IS '是否已整改：Y=是 / N=否';
+COMMENT ON COLUMN qc_defects.rectify_time IS '整改时间';
+COMMENT ON COLUMN qc_defects.create_time IS '记录创建时间';
+
+CREATE INDEX IF NOT EXISTS idx_borrow_record_id ON medical_record_borrows(record_id);
+CREATE INDEX IF NOT EXISTS idx_qcdefect_record_id ON qc_defects(record_id);
+
+-- ----- 批次3: 新增表 -----
+
+-- 产科记录
+CREATE TABLE IF NOT EXISTS obstetric_records (
+    record_id VARCHAR(20) PRIMARY KEY,
+    visit_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    gravida INTEGER,                    -- 孕次
+    para INTEGER,                       -- 产次
+    abortions INTEGER,                  -- 流产次
+    gestational_weeks DECIMAL(4,1),     -- 孕周
+    gestational_days INTEGER,           -- 孕天
+    delivery_mode VARCHAR(30),          -- 顺产/剖宫产/产钳/真空吸引
+    delivery_date TIMESTAMP,
+    labor_duration_hours DECIMAL(4,1),  -- 总产程小时
+    first_stage_hours DECIMAL(4,1),     -- 第一产程
+    second_stage_hours DECIMAL(4,1),    -- 第二产程
+    third_stage_minutes INTEGER,        -- 第三产程分钟
+    episiotomy_flag CHAR(1),            -- 是否侧切
+    perineal_tear_degree VARCHAR(10),   -- 会阴撕裂度
+    apgar_score_1min INTEGER,
+    apgar_score_5min INTEGER,
+    apgar_score_10min INTEGER,
+    birth_weight_g INTEGER,             -- 出生体重 g
+    birth_length_cm DECIMAL(4,1),       -- 出生身长
+    neonatal_gender CHAR(1),
+    neonatal_status VARCHAR(20),        -- 活产/死胎/死产
+    placental_weight_g INTEGER,
+    amniotic_fluid_volume VARCHAR(20),  -- 羊水量
+    amniotic_fluid_character VARCHAR(20), -- 羊水性状
+    postpartum_bleeding_ml INTEGER,     -- 产后出血量
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE obstetric_records IS '产科记录：病案首页的产科补充，含分娩全过程信息';
+COMMENT ON COLUMN obstetric_records.record_id IS '产科记录主键ID';
+COMMENT ON COLUMN obstetric_records.visit_id IS '住院就诊ID';
+COMMENT ON COLUMN obstetric_records.patient_id IS '患者ID';
+COMMENT ON COLUMN obstetric_records.gravida IS '孕次';
+COMMENT ON COLUMN obstetric_records.para IS '产次';
+COMMENT ON COLUMN obstetric_records.abortions IS '流产次';
+COMMENT ON COLUMN obstetric_records.gestational_weeks IS '孕周';
+COMMENT ON COLUMN obstetric_records.gestational_days IS '孕天';
+COMMENT ON COLUMN obstetric_records.delivery_mode IS '分娩方式：顺产/剖宫产/产钳助产/真空吸引';
+COMMENT ON COLUMN obstetric_records.delivery_date IS '分娩日期时间';
+COMMENT ON COLUMN obstetric_records.labor_duration_hours IS '总产程（小时）';
+COMMENT ON COLUMN obstetric_records.first_stage_hours IS '第一产程（小时）';
+COMMENT ON COLUMN obstetric_records.second_stage_hours IS '第二产程（小时）';
+COMMENT ON COLUMN obstetric_records.third_stage_minutes IS '第三产程（分钟）';
+COMMENT ON COLUMN obstetric_records.episiotomy_flag IS '是否侧切：Y/N';
+COMMENT ON COLUMN obstetric_records.perineal_tear_degree IS '会阴撕裂度：0/I/II/III/IV';
+COMMENT ON COLUMN obstetric_records.apgar_score_1min IS '1分钟Apgar评分';
+COMMENT ON COLUMN obstetric_records.apgar_score_5min IS '5分钟Apgar评分';
+COMMENT ON COLUMN obstetric_records.apgar_score_10min IS '10分钟Apgar评分';
+COMMENT ON COLUMN obstetric_records.birth_weight_g IS '出生体重（g）';
+COMMENT ON COLUMN obstetric_records.birth_length_cm IS '出生身长（cm）';
+COMMENT ON COLUMN obstetric_records.neonatal_gender IS '新生儿性别';
+COMMENT ON COLUMN obstetric_records.neonatal_status IS '新生儿状态：活产/死胎/死产';
+COMMENT ON COLUMN obstetric_records.placental_weight_g IS '胎盘重量（g）';
+COMMENT ON COLUMN obstetric_records.amniotic_fluid_volume IS '羊水量';
+COMMENT ON COLUMN obstetric_records.amniotic_fluid_character IS '羊水性状';
+COMMENT ON COLUMN obstetric_records.postpartum_bleeding_ml IS '产后出血量（ml）';
+COMMENT ON COLUMN obstetric_records.create_time IS '记录创建时间';
+
+CREATE INDEX IF NOT EXISTS idx_obstetric_visit_id ON obstetric_records(visit_id);

@@ -98,20 +98,33 @@ SYSTEM_SCALE = {
         "departments": 50,
         "physicians": 200,
         "drugs": 500,
+        "registrations": 30000,
+        "transfer_records": 2000,
+        "settlements": 15000,
+        "prepayments": 50000,
     },
     "emr_db": {
         "emr_documents": 30000,
         "progress_notes": 80000,
         "admission_records": 8000,
         "discharge_records": 7800,
+        "death_records": 500,
+        "consultation_records": 3000,
+        "emr_diagnoses": 50000,
         "surgery_records": 4000,
         "nursing_records": 150000,
+        "transfusion_records": 2000,
+        "informed_consents": 5000,
+        "nursing_assessments": 10000,
     },
     "bingan_db": {
         "medical_records": 7800,
         "diagnoses": 25000,
         "surgeries": 4500,
         "tumors": 300,
+        "medical_record_borrows": 800,
+        "qc_defects": 5000,
+        "obstetric_records": 600,
     },
     "lis_db": {
         "lab_orders": 60000,
@@ -121,6 +134,11 @@ SYSTEM_SCALE = {
         "blood_results": 80000,
         "microbiology": 12000,
         "antibiotic_sensitivity": 8000,
+        "lab_report_master": 60000,
+        "critical_values": 3000,
+        "immunoassay_results": 50000,
+        "molecular_results": 10000,
+        "qc_internal": 5000,
     },
     "ris_db": {
         "exam_orders": 25000,
@@ -129,17 +147,29 @@ SYSTEM_SCALE = {
         "mri_reports": 4000,
         "ultrasound_reports": 6000,
         "devices": 30,
+        "exam_images": 50000,
+        "film_prints": 15000,
+        "intervention_reports": 2000,
+        "nuclear_medicine_reports": 3000,
     },
     "ecg_db": {
         "ecg_exams": 15000,
         "waveforms": 15000,
         "analyses": 15000,
+        "holter_records": 3000,
+        "holter_events": 15000,
+        "stress_test_records": 2000,
     },
     "icu_monitoring_db": {
         "icu_admissions": 2000,
         "monitoring_data": 500000,
         "alarms": 50000,
         "blood_gas": 15000,
+        "ventilator_settings": 8000,
+        "fluid_balance": 15000,
+        "crrt_records": 600,
+        "sedation_records": 25000,
+        "intubation_records": 1200,
     },
 }
 
@@ -150,3 +180,10 @@ SCALE_PROFILES = {
     "medium": 0.50,
     "full": 1.00,
 }
+
+# ----- 场景化缺陷注入配置 -----
+# 导入 meddata_gen.quality.scenarios 中的 DefectScenario
+# 默认使用预定义场景，可覆盖为空列表来禁用
+# from meddata_gen.quality.scenarios import PREDEFINED_SCENARIOS
+# QUALITY_SCENARIOS = PREDEFINED_SCENARIOS
+QUALITY_SCENARIOS = []  # 默认禁用，需显式启用

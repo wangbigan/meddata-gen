@@ -58,6 +58,12 @@ class EMRMixin:
                 random.choice(["甲", "乙", "丙", None]),
                 random.randint(0, 5),
                 random.choice(["草稿", "完成", "归档"]),
+                maybe_null(random.randint(1, 50), 0.10),
+                random.choice(["未打印", "已打印", "部分打印"]),
+                random.choice(["未归档", "待归档", "已归档"]),
+                maybe_null(write_time + timedelta(days=random.randint(1, 7)), 0.40),
+                maybe_null(random.choice(doctor_ids) if doctor_ids else None, 0.40),
+                maybe_null(f"TPL{random.randint(100, 999)}", 0.20),
                 datetime.now(), None
             ))
 
@@ -65,7 +71,9 @@ class EMRMixin:
             ["document_id", "patient_id", "visit_id", "visit_type", "document_type",
              "document_title", "document_content", "dept_id", "author_id", "author_name",
              "write_time", "sign_time", "sign_status", "modify_count", "modifier_id",
-             "modify_time", "quality_status", "print_count", "status", "create_time", "update_time"],
+             "modify_time", "quality_status", "print_count", "status", "page_no",
+             "print_status", "archive_status", "archive_time", "archiver_id", "template_id",
+             "create_time", "update_time"],
             rows)
         print(f"  [EMR] emr_documents: {len(rows)} rows")
 
@@ -145,6 +153,11 @@ class EMRMixin:
                 maybe_null(generate_name(), 0.15),
                 write_time,
                 maybe_null(write_time + timedelta(hours=random.randint(1, 24)), 0.30),
+                maybe_null("月经史正常", 0.50),
+                maybe_null("孕0产0", 0.50),
+                maybe_null(random.choice(["正常", "焦虑", "抑郁", "否认异常"]), 0.30),
+                maybe_null(random.choice(["良好", "一般", "营养不良", "肥胖"]), 0.30),
+                maybe_null(random.choice(["低危", "中危", "高危"]), 0.30),
                 datetime.now()
             ))
 
@@ -153,7 +166,8 @@ class EMRMixin:
              "present_illness", "past_history", "personal_history", "family_history",
              "allergy_history", "physical_exam", "vital_signs", "auxiliary_exam",
              "preliminary_diagnosis", "diagnosis_icd", "treatment_plan", "doctor_id",
-             "doctor_name", "write_time", "sign_time", "create_time"],
+             "doctor_name", "write_time", "sign_time", "menstrual_history", "obstetric_history",
+             "psychological_status", "nutrition_status", "fall_risk", "create_time"],
             rows)
         print(f"  [EMR] admission_records: {len(rows)} rows")
 
@@ -210,6 +224,125 @@ class EMRMixin:
              "doctor_id", "doctor_name", "write_time", "sign_time", "create_time"],
             rows)
         print(f"  [EMR] discharge_records: {len(rows)} rows")
+
+    def generate_death_records(self, count: int = 500):
+        """生成死亡记录"""
+        rows = []
+        doctor_ids = [s[0] for s in self.staff if s[10] == "医生"]
+
+        for i in range(count):
+            if self._should_link("emr_db") and self.inpatients:
+                visit = random.choice(self.inpatients)
+                patient_id = visit[1]
+                visit_id = visit[0]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+                visit_id = f"IV{random.randint(1, 9999999)}"
+
+            death_time = random_datetime("2023-01-01", "2024-12-31")
+            diagnosis = random.choice(ICD10_DIAGNOSES)
+            doctor = random.choice(doctor_ids) if doctor_ids else None
+
+            rows.append((
+                f"DE{str(i+1).zfill(7)}", patient_id, visit_id,
+                death_time,
+                maybe_null(diagnosis[1], 0.10),
+                maybe_null(diagnosis[1], 0.15),
+                maybe_null(diagnosis[0], 0.20),
+                random.choice(["Y", "N"]),
+                maybe_null("尸检结果待补充", 0.60),
+                maybe_null(death_time + timedelta(hours=random.randint(1, 12)), 0.30),
+                doctor,
+                datetime.now()
+            ))
+
+        self._batch_insert("death_records",
+            ["record_id", "patient_id", "visit_id", "death_time", "death_cause",
+             "death_diagnosis", "death_icd", "autopsy_flag", "autopsy_result",
+             "notify_family_time", "doctor_id", "create_time"],
+            rows)
+        print(f"  [EMR] death_records: {len(rows)} rows")
+
+    def generate_consultation_records(self, count: int = 3000):
+        """生成会诊记录"""
+        rows = []
+        doctor_ids = [s[0] for s in self.staff if s[10] == "医生"]
+        dept_ids = [d["id"] for d in self.departments]
+
+        for i in range(count):
+            if self._should_link("emr_db") and self.inpatients:
+                visit = random.choice(self.inpatients)
+                patient_id = visit[1]
+                visit_id = visit[0]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+                visit_id = f"IV{random.randint(1, 9999999)}"
+
+            request_time = random_datetime("2023-01-01", "2024-12-31")
+            request_dept = random.choice(dept_ids) if dept_ids else None
+            request_doctor = random.choice(doctor_ids) if doctor_ids else None
+            requested_dept = random.choice(dept_ids) if dept_ids else None
+            requested_doctor = random.choice(doctor_ids) if doctor_ids else None
+
+            rows.append((
+                f"CR{str(i+1).zfill(7)}", patient_id, visit_id,
+                random.choice(["普通会诊", "急会诊", "多学科会诊", "远程会诊"]),
+                request_dept,
+                request_doctor,
+                requested_dept,
+                requested_doctor,
+                request_time,
+                maybe_null(request_time + timedelta(hours=random.randint(1, 48)), 0.25),
+                maybe_null("会诊意见待补充", 0.20),
+                random.choice(["普通", "紧急"]),
+                random.choice(["申请中", "已安排", "已完成", "已取消"]),
+                datetime.now()
+            ))
+
+        self._batch_insert("consultation_records",
+            ["consultation_id", "patient_id", "visit_id", "consultation_type",
+             "request_dept_id", "request_doctor_id", "requested_dept_id", "requested_doctor_id",
+             "request_time", "consultation_time", "consultation_opinion", "urgency",
+             "status", "create_time"],
+            rows)
+        print(f"  [EMR] consultation_records: {len(rows)} rows")
+
+    def generate_emr_diagnoses(self, count: int = 50000):
+        """生成EMR诊断明细"""
+        rows = []
+        doctor_ids = [s[0] for s in self.staff if s[10] == "医生"]
+
+        for i in range(count):
+            if self._should_link("emr_db") and self.inpatients:
+                visit = random.choice(self.inpatients)
+                patient_id = visit[1]
+                visit_id = visit[0]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+                visit_id = f"IV{random.randint(1, 9999999)}"
+
+            diagnosis = random.choice(ICD10_DIAGNOSES)
+            diagnosis_time = random_datetime("2023-01-01", "2024-12-31")
+            doctor = random.choice(doctor_ids) if doctor_ids else None
+
+            rows.append((
+                f"ED{str(i+1).zfill(7)}", patient_id, visit_id,
+                random.choice(["入院诊断", "出院诊断", "术前诊断", "术后诊断", "病理诊断"]),
+                random.randint(1, 10),
+                diagnosis[1],
+                maybe_null(diagnosis[0], 0.15),
+                diagnosis_time,
+                doctor,
+                random.choice(["Y", "N"]),
+                datetime.now()
+            ))
+
+        self._batch_insert("emr_diagnoses",
+            ["diagnosis_id", "patient_id", "visit_id", "diagnosis_type", "seq_no",
+             "diagnosis_name", "diagnosis_icd", "diagnosis_time", "doctor_id",
+             "is_principal", "create_time"],
+            rows)
+        print(f"  [EMR] emr_diagnoses: {len(rows)} rows")
 
     def generate_surgery_records(self, count: int = 4000):
         """生成手术记录"""
@@ -315,6 +448,14 @@ class EMRMixin:
                 maybe_null("遵医嘱用药", 0.25),
                 maybe_null("病情平稳", 0.20),
                 maybe_null("继续观察", 0.25),
+                maybe_null(round(random.uniform(2.0, 5.0), 1), 0.20),
+                maybe_null(round(random.uniform(2.0, 5.0), 1), 0.20),
+                maybe_null(random.choice(["灵敏", "迟钝", "消失"]), 0.25),
+                maybe_null(random.randint(0, 10), 0.30),
+                maybe_null(random.randint(0, 10), 0.30),
+                maybe_null(random.randint(6, 23), 0.30),
+                maybe_null(random.choice(["留置导尿护理", "膀胱冲洗", "更换尿袋"]), 0.40),
+                maybe_null(random.choice(["换药", "引流管护理", "压疮护理"]), 0.40),
                 record_time + timedelta(minutes=random.randint(1, 30)),
                 datetime.now()
             ))
@@ -324,6 +465,124 @@ class EMRMixin:
              "nurse_name", "temperature", "pulse", "respiration", "blood_pressure", "spo2",
              "consciousness", "intake_fluid", "output_fluid", "urine", "stool_count",
              "special_care", "skin_condition", "drainage", "medication", "observation",
-             "nursing_measures", "signature_time", "create_time"],
+             "nursing_measures", "pupil_size_left", "pupil_size_right", "light_reflex",
+             "pain_score", "fall_score", "braden_score", "catheter_care", "wound_care",
+             "signature_time", "create_time"],
             rows)
         print(f"  [EMR] nursing_records: {len(rows)} rows")
+
+    def generate_transfusion_records(self, count: int = 2000):
+        """生成输血记录"""
+        rows = []
+        blood_products = ["红细胞", "血浆", "血小板", "冷沉淀"]
+        for i in range(count):
+            if self._should_link("emr_db") and self.inpatients:
+                visit = random.choice(self.inpatients)
+                patient_id = visit[1]
+                visit_id = visit[0]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+                visit_id = f"IV{random.randint(1, 9999999)}"
+
+            start_time = random_datetime("2023-01-01", "2024-12-31")
+            duration = random.randint(60, 300)
+            end_time = start_time + timedelta(minutes=duration)
+            reaction = random.choice(["Y", "N", "N", "N", "N"])
+
+            rows.append((
+                f"TF{str(i+1).zfill(7)}", patient_id, visit_id,
+                random.choice(["A", "B", "AB", "O", "RH-"]),
+                random.choice(blood_products),
+                random.randint(100, 600),
+                f"BG{random.randint(100000, 999999)}",
+                start_time, end_time,
+                reaction,
+                maybe_null("发热，寒战", 0.30) if reaction == "Y" else None,
+                round(random.uniform(36.0, 37.5), 1),
+                round(random.uniform(36.5, 39.0), 1) if reaction == "Y" else round(random.uniform(36.0, 37.5), 1),
+                maybe_null(f"{random.randint(100, 140)}/{random.randint(60, 90)}", 0.10),
+                maybe_null(f"{random.randint(100, 140)}/{random.randint(60, 90)}", 0.10),
+                datetime.now()
+            ))
+
+        self._batch_insert("transfusion_records",
+            ["transfusion_id", "patient_id", "visit_id", "blood_type", "blood_product",
+             "volume_ml", "blood_bag_no", "transfusion_start_time", "transfusion_end_time",
+             "transfusion_reaction", "reaction_desc", "pre_temp", "post_temp", "pre_bp", "post_bp", "create_time"],
+            rows)
+        print(f"  [EMR] transfusion_records: {len(rows)} rows")
+
+    def generate_informed_consents(self, count: int = 5000):
+        """生成知情同意书"""
+        rows = []
+        consent_types = ["手术同意", "麻醉同意", "输血同意", "病危通知", "特殊检查", "侵入性操作"]
+        relations = ["本人", "配偶", "子女", "父母", "其他"]
+
+        for i in range(count):
+            if self._should_link("emr_db") and self.inpatients:
+                visit = random.choice(self.inpatients)
+                patient_id = visit[1]
+                visit_id = visit[0]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+                visit_id = f"IV{random.randint(1, 9999999)}"
+
+            sign_time = random_datetime("2023-01-01", "2024-12-31")
+
+            rows.append((
+                f"IC{str(i+1).zfill(7)}", patient_id, visit_id,
+                random.choice(consent_types),
+                maybe_null("已详细告知患者/家属相关风险及替代方案", 0.15),
+                maybe_null(generate_name(), 0.10),
+                random.choice(relations),
+                maybe_null(generate_phone(), 0.15),
+                sign_time,
+                maybe_null(f"ST{random.randint(1, 200)}", 0.20),
+                maybe_null(generate_name(), 0.25),
+                datetime.now()
+            ))
+
+        self._batch_insert("informed_consents",
+            ["consent_id", "patient_id", "visit_id", "consent_type", "consent_content",
+             "signer_name", "signer_relation", "signer_phone", "sign_time", "doctor_id",
+             "witness_name", "create_time"],
+            rows)
+        print(f"  [EMR] informed_consents: {len(rows)} rows")
+
+    def generate_nursing_assessments(self, count: int = 10000):
+        """生成护理评估单"""
+        rows = []
+        assessment_types = ["入院", "跌倒", "压疮", "VTE", "疼痛", "营养"]
+        risk_levels = ["低", "中", "高", "极高"]
+        nurse_ids = [s[0] for s in self.staff if s[10] == "护士"]
+
+        for i in range(count):
+            if self._should_link("emr_db") and self.inpatients:
+                visit = random.choice(self.inpatients)
+                patient_id = visit[1]
+                visit_id = visit[0]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+                visit_id = f"IV{random.randint(1, 9999999)}"
+
+            assess_type = random.choice(assessment_types)
+            total_score = random.randint(0, 25)
+            risk_level = random.choice(risk_levels)
+
+            rows.append((
+                f"NA{str(i+1).zfill(7)}", patient_id, visit_id,
+                assess_type,
+                random_datetime("2023-01-01", "2024-12-31"),
+                total_score,
+                risk_level,
+                maybe_null(f"评分{total_score}分，{risk_level}风险", 0.20),
+                maybe_null("加强观察，落实预防措施", 0.20),
+                random.choice(nurse_ids) if nurse_ids else None,
+                datetime.now()
+            ))
+
+        self._batch_insert("nursing_assessments",
+            ["assessment_id", "patient_id", "visit_id", "assessment_type", "assessment_time",
+             "total_score", "risk_level", "risk_factors", "preventive_measures", "nurse_id", "create_time"],
+            rows)
+        print(f"  [EMR] nursing_assessments: {len(rows)} rows")

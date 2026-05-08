@@ -83,7 +83,14 @@ class BinganMixin:
                 datetime.now(),
                 maybe_null(discharge_time + timedelta(days=random.randint(1, 7)), 0.20) if discharge_time else None,
                 random.choice(["未归档", "已归档", "借阅中"]),
-                datetime.now(), None
+                datetime.now(), None,
+                random.randint(1, 10),
+                random.randint(0, 5),
+                maybe_null(random.choice(["无", "发热", "皮疹", "寒战", "血红蛋白尿", "过敏性休克"]), 0.70),
+                random.choice(["Y", "N"]),
+                maybe_null(f"P{random.randint(100000, 999999)}", 0.40),
+                maybe_null(round(random.uniform(0.5, 5.0), 4), 0.45),
+                maybe_null(random.choice(["医保", "自费", "商保", "公费", "异地结算"]), 0.30),
             ))
 
         self._batch_insert("medical_records",
@@ -97,7 +104,9 @@ class BinganMixin:
              "surgery_cost", "anesthesia_cost", "nursing_cost", "age", "age_month",
              "weight", "birth_weight", "drg_code", "drg_name", "mdc_code",
              "quality_control", "teaching_case", "research_case", "coding_doctor",
-             "coding_time", "archive_time", "archive_status", "create_time", "update_time"],
+             "coding_time", "archive_time", "archive_status", "create_time", "update_time",
+             "admission_count", "transfusion_count", "transfusion_reaction",
+             "autopsy_flag", "pathology_no", "drg_weight", "insurance_settlement_type"],
             rows)
         print(f"  [BINGAN] medical_records: {len(rows)} rows")
 
@@ -250,3 +259,169 @@ class BinganMixin:
              "survival_status", "survival_months", "create_time"],
             rows)
         print(f"  [BINGAN] tumor_registry: {len(rows)} rows")
+
+    def generate_medical_record_borrows(self, count: int = 800):
+        """生成病案借阅记录"""
+        rows = []
+        statuses = ["借阅中", "已归还", "已逾期", "已续借"]
+
+        for i in range(count):
+            if self._should_link("bingan_db") and self.inpatients:
+                visit = random.choice(self.inpatients)
+                patient_id = visit[1]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+
+            borrow_time = random_datetime("2023-01-01", "2024-12-31")
+            expected_return_time = borrow_time + timedelta(days=random.randint(3, 30))
+            status = random.choice(statuses)
+            return_time = (
+                borrow_time + timedelta(days=random.randint(1, 35))
+                if status in ["已归还", "已逾期"] else None
+            )
+
+            rows.append((
+                f"BR{str(i+1).zfill(5)}",
+                f"BA{random.randint(1, 8000)}",
+                patient_id,
+                generate_name(),
+                random.choice([d["name"] for d in self.departments]),
+                maybe_null(f"138{random.randint(10000000, 99999999)}", 0.30),
+                borrow_time,
+                expected_return_time,
+                return_time,
+                maybe_null(random.choice(["科研", "教学", "质控", "医保审核", "司法", "随访"]), 0.25),
+                status,
+                datetime.now()
+            ))
+
+        self._batch_insert("medical_record_borrows",
+            ["borrow_id", "record_id", "patient_id", "borrower_name", "borrower_dept",
+             "borrower_phone", "borrow_time", "expected_return_time", "return_time",
+             "borrow_purpose", "status", "create_time"],
+            rows)
+        print(f"  [BINGAN] medical_record_borrows: {len(rows)} rows")
+
+    def generate_qc_defects(self, count: int = 5000):
+        """生成病案质控缺陷记录"""
+        rows = []
+        defect_types = ["首页", "病程", "医嘱", "知情同意", "签名", "其他"]
+        severities = ["甲", "乙", "丙", "单项否决"]
+        defect_items = [
+            "主诊断填写不完整", "出院情况未填写", "手术名称与编码不符",
+            "病程记录不及时", "上级医师查房记录缺失", "知情同意书未签字",
+            "首页基本信息缺项", "诊断依据不充分", "手术记录不完整",
+            "麻醉记录单缺失", "护理记录不完整", "检验报告单未归档",
+            "医嘱开立不规范", "会诊记录不及时", "交接班记录缺失",
+        ]
+
+        for i in range(count):
+            if self._should_link("bingan_db") and self.inpatients:
+                visit = random.choice(self.inpatients)
+                patient_id = visit[1]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+
+            qc_time = random_datetime("2023-01-01", "2024-12-31")
+            is_rectified = random.choice(["Y", "N", "Y", "Y"])
+            rectify_time = (
+                qc_time + timedelta(days=random.randint(1, 7))
+                if is_rectified == "Y" else None
+            )
+            doctor_ids = [s[0] for s in self.staff if s[10] == "医生"]
+
+            rows.append((
+                f"QD{str(i+1).zfill(5)}",
+                f"BA{random.randint(1, 8000)}",
+                patient_id,
+                random.choice(defect_types),
+                random.choice(defect_items),
+                random.choice(severities),
+                maybe_null(random.choice(["描述不完整", "信息缺失", "逻辑错误", "格式不规范"]), 0.35),
+                maybe_null(random.choice(doctor_ids), 0.25) if doctor_ids else None,
+                qc_time,
+                is_rectified,
+                maybe_null(rectify_time, 0.30),
+                datetime.now()
+            ))
+
+        self._batch_insert("qc_defects",
+            ["defect_id", "record_id", "patient_id", "defect_type", "defect_item",
+             "severity", "description", "qc_doctor_id", "qc_time",
+             "is_rectified", "rectify_time", "create_time"],
+            rows)
+        print(f"  [BINGAN] qc_defects: {len(rows)} rows")
+
+    def generate_obstetric_records(self, count: int = 600):
+        """生成产科记录"""
+        rows = []
+        delivery_modes = ["顺产", "剖宫产", "产钳助产", "真空吸引"]
+        amniotic_volumes = ["少", "中", "多"]
+        amniotic_characters = ["清亮", "Ⅰ度污染", "Ⅱ度污染", "Ⅲ度污染", "血性"]
+        neonatal_statuses = ["活产", "死胎", "死产"]
+
+        for i in range(count):
+            if self._should_link("bingan_db") and self.inpatients:
+                visit = random.choice(self.inpatients)
+                patient_id = visit[1]
+                visit_id = visit[0]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+                visit_id = f"IV{random.randint(1, 9999999)}"
+
+            gravida = random.randint(1, 5)
+            para = random.randint(0, min(gravida, 3))
+            abortions = max(0, gravida - para - random.randint(0, 1))
+            gestational_weeks = round(random.uniform(37.0, 42.0), 1)
+            gestational_days = int((gestational_weeks % 1) * 7)
+            delivery_date = random_datetime("2023-01-01", "2024-12-31")
+            first_stage = round(random.uniform(4.0, 16.0), 1)
+            second_stage = round(random.uniform(0.5, 3.0), 1)
+            third_stage = random.randint(5, 30)
+            labor_duration = round(first_stage + second_stage + third_stage / 60, 1)
+            apgar1 = random.randint(7, 10)
+            apgar5 = random.randint(8, 10)
+            apgar10 = random.randint(8, 10) if random.random() > 0.3 else None
+
+            rows.append((
+                f"OB{str(i+1).zfill(5)}",
+                visit_id,
+                patient_id,
+                gravida,
+                para,
+                abortions,
+                gestational_weeks,
+                gestational_days,
+                random.choice(delivery_modes),
+                delivery_date,
+                labor_duration,
+                first_stage,
+                second_stage,
+                third_stage,
+                random.choice(["Y", "N"]),
+                maybe_null(random.choice(["0", "I", "II", "III"]), 0.50),
+                apgar1,
+                apgar5,
+                apgar10,
+                random.randint(2500, 4000),
+                round(random.uniform(48.0, 52.0), 1),
+                random.choice(["M", "F"]),
+                random.choice(neonatal_statuses),
+                random.randint(400, 700),
+                random.choice(amniotic_volumes),
+                random.choice(amniotic_characters),
+                random.randint(100, 800),
+                datetime.now()
+            ))
+
+        self._batch_insert("obstetric_records",
+            ["record_id", "visit_id", "patient_id", "gravida", "para", "abortions",
+             "gestational_weeks", "gestational_days", "delivery_mode", "delivery_date",
+             "labor_duration_hours", "first_stage_hours", "second_stage_hours",
+             "third_stage_minutes", "episiotomy_flag", "perineal_tear_degree",
+             "apgar_score_1min", "apgar_score_5min", "apgar_score_10min",
+             "birth_weight_g", "birth_length_cm", "neonatal_gender",
+             "neonatal_status", "placental_weight_g", "amniotic_fluid_volume",
+             "amniotic_fluid_character", "postpartum_bleeding_ml", "create_time"],
+            rows)
+        print(f"  [BINGAN] obstetric_records: {len(rows)} rows")

@@ -317,11 +317,232 @@ COMMENT ON COLUMN antibiotic_sensitivity.test_time IS '测试时间';
 COMMENT ON COLUMN antibiotic_sensitivity.report_time IS '报告时间';
 COMMENT ON COLUMN antibiotic_sensitivity.create_time IS '记录创建时间';
 
-CREATE INDEX idx_laborder_patient_id ON lab_orders(patient_id);
-CREATE INDEX idx_laborder_visit_id ON lab_orders(visit_id);
-CREATE INDEX idx_specimen_order_id ON specimens(order_id);
-CREATE INDEX idx_routine_patient_id ON routine_results(patient_id);
-CREATE INDEX idx_biochem_patient_id ON biochem_results(patient_id);
-CREATE INDEX idx_blood_patient_id ON blood_results(patient_id);
-CREATE INDEX idx_micro_patient_id ON microbiology(patient_id);
-CREATE INDEX idx_anti_micro_id ON antibiotic_sensitivity(micro_id);
+CREATE INDEX IF NOT EXISTS idx_laborder_patient_id ON lab_orders(patient_id);
+CREATE INDEX IF NOT EXISTS idx_laborder_visit_id ON lab_orders(visit_id);
+CREATE INDEX IF NOT EXISTS idx_specimen_order_id ON specimens(order_id);
+CREATE INDEX IF NOT EXISTS idx_routine_patient_id ON routine_results(patient_id);
+CREATE INDEX IF NOT EXISTS idx_biochem_patient_id ON biochem_results(patient_id);
+CREATE INDEX IF NOT EXISTS idx_blood_patient_id ON blood_results(patient_id);
+CREATE INDEX IF NOT EXISTS idx_micro_patient_id ON microbiology(patient_id);
+CREATE INDEX IF NOT EXISTS idx_anti_micro_id ON antibiotic_sensitivity(micro_id);
+
+-- ----- 批次1: 新增表 -----
+
+-- 检验报告主表
+CREATE TABLE IF NOT EXISTS lab_report_master (
+    report_id VARCHAR(20) PRIMARY KEY,
+    order_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    report_no VARCHAR(30),
+    report_time TIMESTAMP,
+    verify_time TIMESTAMP,
+    reporter_id VARCHAR(20),
+    verifier_id VARCHAR(20),
+    report_status VARCHAR(20),          -- 草稿/已提交/已审核
+    critical_value_flag CHAR(1),        -- 是否危急值 Y/N
+    critical_value_handled CHAR(1),     -- 危急值是否已处理 Y/N
+    specimen_type VARCHAR(50),
+    specimen_status VARCHAR(20),        -- 合格/溶血/脂血/凝块
+    instrument_code VARCHAR(20),
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time TIMESTAMP
+);
+COMMENT ON TABLE lab_report_master IS '检验报告主表：统一报告头表（迈瑞/罗氏 LIS 均有），汇总各分类结果';
+COMMENT ON COLUMN lab_report_master.report_id IS '报告主键ID';
+COMMENT ON COLUMN lab_report_master.order_id IS '关联检验申请ID';
+COMMENT ON COLUMN lab_report_master.patient_id IS '患者ID';
+COMMENT ON COLUMN lab_report_master.visit_id IS '就诊ID';
+COMMENT ON COLUMN lab_report_master.report_no IS '报告编号';
+COMMENT ON COLUMN lab_report_master.report_time IS '报告时间';
+COMMENT ON COLUMN lab_report_master.verify_time IS '审核时间';
+COMMENT ON COLUMN lab_report_master.reporter_id IS '报告人ID';
+COMMENT ON COLUMN lab_report_master.verifier_id IS '审核人ID';
+COMMENT ON COLUMN lab_report_master.report_status IS '报告状态：草稿/已提交/已审核/已发布';
+COMMENT ON COLUMN lab_report_master.critical_value_flag IS '是否危急值：Y=是 / N=否';
+COMMENT ON COLUMN lab_report_master.critical_value_handled IS '危急值是否已处理闭环：Y=是 / N=否';
+COMMENT ON COLUMN lab_report_master.specimen_type IS '标本类型';
+COMMENT ON COLUMN lab_report_master.specimen_status IS '标本质量状态：合格/溶血/脂血/凝块';
+COMMENT ON COLUMN lab_report_master.instrument_code IS '检验仪器编码';
+COMMENT ON COLUMN lab_report_master.create_time IS '记录创建时间';
+COMMENT ON COLUMN lab_report_master.update_time IS '记录更新时间';
+
+-- 危急值处理记录
+CREATE TABLE IF NOT EXISTS critical_values (
+    cv_id VARCHAR(20) PRIMARY KEY,
+    order_id VARCHAR(20) NOT NULL,
+    report_id VARCHAR(20),
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    item_name VARCHAR(100),
+    result_value VARCHAR(100),
+    reference_range VARCHAR(50),
+    cv_time TIMESTAMP NOT NULL,
+    notified_doctor_id VARCHAR(20),
+    notification_time TIMESTAMP,
+    confirmation_time TIMESTAMP,
+    handler_id VARCHAR(20),
+    handle_action TEXT,
+    status VARCHAR(20),                 -- 已通知/已确认/已处理
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE critical_values IS '危急值处理记录：危急值闭环管理（JCI/三甲评审重点，检验科质控核心）';
+COMMENT ON COLUMN critical_values.cv_id IS '危急值主键ID';
+COMMENT ON COLUMN critical_values.order_id IS '关联检验申请ID';
+COMMENT ON COLUMN critical_values.report_id IS '关联报告ID';
+COMMENT ON COLUMN critical_values.patient_id IS '患者ID';
+COMMENT ON COLUMN critical_values.visit_id IS '就诊ID';
+COMMENT ON COLUMN critical_values.item_name IS '危急值项目名称';
+COMMENT ON COLUMN critical_values.result_value IS '危急值结果';
+COMMENT ON COLUMN critical_values.reference_range IS '参考范围';
+COMMENT ON COLUMN critical_values.cv_time IS '危急值检出时间';
+COMMENT ON COLUMN critical_values.notified_doctor_id IS '被通知医生ID';
+COMMENT ON COLUMN critical_values.notification_time IS '通知时间';
+COMMENT ON COLUMN critical_values.confirmation_time IS '确认时间';
+COMMENT ON COLUMN critical_values.handler_id IS '处理人ID';
+COMMENT ON COLUMN critical_values.handle_action IS '处理措施';
+COMMENT ON COLUMN critical_values.status IS '处理状态：已通知/已确认/已处理/已关闭';
+COMMENT ON COLUMN critical_values.create_time IS '记录创建时间';
+
+-- ----- 批次1: 现有表补充字段 -----
+
+ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS barcode VARCHAR(30);
+ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS collect_time TIMESTAMP;
+ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS collect_user_id VARCHAR(20);
+ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS receive_time TIMESTAMP;
+ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS receive_user_id VARCHAR(20);
+ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS specimen_quality VARCHAR(20);
+
+ALTER TABLE routine_results ADD COLUMN IF NOT EXISTS dilution_factor INTEGER DEFAULT 1;
+ALTER TABLE routine_results ADD COLUMN IF NOT EXISTS delta_check_flag CHAR(1);
+ALTER TABLE routine_results ADD COLUMN IF NOT EXISTS instrument_channel VARCHAR(20);
+ALTER TABLE routine_results ADD COLUMN IF NOT EXISTS reagent_lot_no VARCHAR(30);
+
+ALTER TABLE biochem_results ADD COLUMN IF NOT EXISTS dilution_factor INTEGER DEFAULT 1;
+ALTER TABLE biochem_results ADD COLUMN IF NOT EXISTS delta_check_flag CHAR(1);
+ALTER TABLE biochem_results ADD COLUMN IF NOT EXISTS instrument_channel VARCHAR(20);
+ALTER TABLE biochem_results ADD COLUMN IF NOT EXISTS reagent_lot_no VARCHAR(30);
+
+ALTER TABLE blood_results ADD COLUMN IF NOT EXISTS dilution_factor INTEGER DEFAULT 1;
+ALTER TABLE blood_results ADD COLUMN IF NOT EXISTS delta_check_flag CHAR(1);
+ALTER TABLE blood_results ADD COLUMN IF NOT EXISTS instrument_channel VARCHAR(20);
+ALTER TABLE blood_results ADD COLUMN IF NOT EXISTS reagent_lot_no VARCHAR(30);
+
+-- 新增表索引
+CREATE INDEX IF NOT EXISTS idx_labreport_order_id ON lab_report_master(order_id);
+CREATE INDEX IF NOT EXISTS idx_labreport_patient_id ON lab_report_master(patient_id);
+CREATE INDEX IF NOT EXISTS idx_cv_patient_id ON critical_values(patient_id);
+CREATE INDEX IF NOT EXISTS idx_cv_order_id ON critical_values(order_id);
+
+-- ----- 批次2: 新增表 -----
+
+-- 免疫/发光结果
+CREATE TABLE IF NOT EXISTS immunoassay_results (
+    result_id VARCHAR(20) PRIMARY KEY,
+    order_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    item_code VARCHAR(20) NOT NULL,
+    item_name VARCHAR(100),
+    result_value VARCHAR(100),
+    result_num DECIMAL(12,4),
+    unit VARCHAR(20),
+    reference_range VARCHAR(50),
+    abnormal_flag VARCHAR(10),
+    method VARCHAR(50),                 -- 化学发光/电化学发光/ELISA/放射免疫
+    instrument_code VARCHAR(20),
+    test_time TIMESTAMP,
+    report_time TIMESTAMP,
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE immunoassay_results IS '免疫/发光结果：肿瘤标志物、激素、心肌标志物等免疫学检验（罗氏 cobas 常见）';
+COMMENT ON COLUMN immunoassay_results.result_id IS '结果主键ID';
+COMMENT ON COLUMN immunoassay_results.order_id IS '关联检验申请ID';
+COMMENT ON COLUMN immunoassay_results.patient_id IS '患者ID';
+COMMENT ON COLUMN immunoassay_results.visit_id IS '就诊ID';
+COMMENT ON COLUMN immunoassay_results.item_code IS '检验项目编码';
+COMMENT ON COLUMN immunoassay_results.item_name IS '检验项目名称';
+COMMENT ON COLUMN immunoassay_results.result_value IS '结果值（文本）';
+COMMENT ON COLUMN immunoassay_results.result_num IS '结果数值';
+COMMENT ON COLUMN immunoassay_results.unit IS '单位';
+COMMENT ON COLUMN immunoassay_results.reference_range IS '参考范围';
+COMMENT ON COLUMN immunoassay_results.abnormal_flag IS '异常标志：H/L/异常/阳性/阴性';
+COMMENT ON COLUMN immunoassay_results.method IS '检测方法：化学发光/电化学发光/ELISA/放射免疫';
+COMMENT ON COLUMN immunoassay_results.instrument_code IS '仪器编码';
+COMMENT ON COLUMN immunoassay_results.test_time IS '检测时间';
+COMMENT ON COLUMN immunoassay_results.report_time IS '报告时间';
+COMMENT ON COLUMN immunoassay_results.create_time IS '记录创建时间';
+
+-- 分子诊断结果
+CREATE TABLE IF NOT EXISTS molecular_results (
+    result_id VARCHAR(20) PRIMARY KEY,
+    order_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    item_code VARCHAR(20) NOT NULL,
+    item_name VARCHAR(100),
+    result_value VARCHAR(100),
+    qualitative_result VARCHAR(20),     -- 阴性/阳性/可疑
+    ct_value DECIMAL(5,2),              -- CT值（PCR用）
+    gene_target VARCHAR(100),           -- 靶基因
+    mutation_info TEXT,                 -- 突变信息
+    method VARCHAR(50),                 -- PCR/测序/FISH/芯片
+    specimen_type VARCHAR(50),
+    collect_time TIMESTAMP,
+    report_time TIMESTAMP,
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE molecular_results IS '分子诊断结果：PCR、基因测序、FISH等分子检验（安图/达安 LIS 支持）';
+COMMENT ON COLUMN molecular_results.result_id IS '结果主键ID';
+COMMENT ON COLUMN molecular_results.order_id IS '关联检验申请ID';
+COMMENT ON COLUMN molecular_results.patient_id IS '患者ID';
+COMMENT ON COLUMN molecular_results.visit_id IS '就诊ID';
+COMMENT ON COLUMN molecular_results.item_code IS '检验项目编码';
+COMMENT ON COLUMN molecular_results.item_name IS '检验项目名称';
+COMMENT ON COLUMN molecular_results.result_value IS '结果值';
+COMMENT ON COLUMN molecular_results.qualitative_result IS '定性结果：阴性/阳性/可疑';
+COMMENT ON COLUMN molecular_results.ct_value IS 'CT值（PCR检测用）';
+COMMENT ON COLUMN molecular_results.gene_target IS '检测靶基因';
+COMMENT ON COLUMN molecular_results.mutation_info IS '突变信息描述';
+COMMENT ON COLUMN molecular_results.method IS '检测方法：PCR/测序/FISH/芯片';
+COMMENT ON COLUMN molecular_results.specimen_type IS '标本类型';
+COMMENT ON COLUMN molecular_results.collect_time IS '采集时间';
+COMMENT ON COLUMN molecular_results.report_time IS '报告时间';
+COMMENT ON COLUMN molecular_results.create_time IS '记录创建时间';
+
+-- 室内质控
+CREATE TABLE IF NOT EXISTS qc_internal (
+    qc_id VARCHAR(20) PRIMARY KEY,
+    item_code VARCHAR(20) NOT NULL,
+    item_name VARCHAR(100),
+    lot_no VARCHAR(30),                 -- 质控品批号
+    level VARCHAR(10),                  -- 质控品水平：L1/L2/L3
+    target_value DECIMAL(12,4),
+    sd DECIMAL(12,4),
+    cv DECIMAL(6,2),                    -- 变异系数%
+    measured_value DECIMAL(12,4),
+    run_date DATE,
+    instrument_code VARCHAR(20),
+    status VARCHAR(20),                 -- 在控/警告/失控
+    operator_id VARCHAR(20),
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE qc_internal IS '室内质控：检验科每日室内质控数据记录';
+COMMENT ON COLUMN qc_internal.qc_id IS '质控主键ID';
+COMMENT ON COLUMN qc_internal.item_code IS '检验项目编码';
+COMMENT ON COLUMN qc_internal.item_name IS '检验项目名称';
+COMMENT ON COLUMN qc_internal.lot_no IS '质控品批号';
+COMMENT ON COLUMN qc_internal.level IS '质控品水平：L1/L2/L3';
+COMMENT ON COLUMN qc_internal.target_value IS '靶值';
+COMMENT ON COLUMN qc_internal.sd IS '标准差';
+COMMENT ON COLUMN qc_internal.cv IS '变异系数（%）';
+COMMENT ON COLUMN qc_internal.measured_value IS '实测值';
+COMMENT ON COLUMN qc_internal.run_date IS '运行日期';
+COMMENT ON COLUMN qc_internal.instrument_code IS '仪器编码';
+COMMENT ON COLUMN qc_internal.status IS '质控状态：在控/警告/失控';
+COMMENT ON COLUMN qc_internal.operator_id IS '操作人ID';
+COMMENT ON COLUMN qc_internal.create_time IS '记录创建时间';
+
+CREATE INDEX IF NOT EXISTS idx_immuno_patient_id ON immunoassay_results(patient_id);
+CREATE INDEX IF NOT EXISTS idx_molecular_patient_id ON molecular_results(patient_id);
+CREATE INDEX IF NOT EXISTS idx_qc_run_date ON qc_internal(run_date);

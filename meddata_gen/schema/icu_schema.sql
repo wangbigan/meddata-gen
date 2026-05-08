@@ -247,11 +247,218 @@ COMMENT ON COLUMN blood_gas.operator_name IS '操作人姓名';
 COMMENT ON COLUMN blood_gas.verify_flag IS '是否已审核：Y/N';
 COMMENT ON COLUMN blood_gas.create_time IS '记录创建时间';
 
-CREATE INDEX idx_icuadm_patient_id ON icu_admissions(patient_id);
-CREATE INDEX idx_icuadm_visit_id ON icu_admissions(visit_id);
-CREATE INDEX idx_monitor_patient_id ON monitoring_data(patient_id);
-CREATE INDEX idx_monitor_time ON monitoring_data(monitor_time);
-CREATE INDEX idx_alarm_patient_id ON alarms(patient_id);
-CREATE INDEX idx_alarm_time ON alarms(alarm_time);
-CREATE INDEX idx_bloodgas_patient_id ON blood_gas(patient_id);
-CREATE INDEX idx_bloodgas_collect_time ON blood_gas(collect_time);
+CREATE INDEX IF NOT EXISTS idx_icuadm_patient_id ON icu_admissions(patient_id);
+CREATE INDEX IF NOT EXISTS idx_icuadm_visit_id ON icu_admissions(visit_id);
+CREATE INDEX IF NOT EXISTS idx_monitor_patient_id ON monitoring_data(patient_id);
+CREATE INDEX IF NOT EXISTS idx_monitor_time ON monitoring_data(monitor_time);
+CREATE INDEX IF NOT EXISTS idx_alarm_patient_id ON alarms(patient_id);
+CREATE INDEX IF NOT EXISTS idx_alarm_time ON alarms(alarm_time);
+CREATE INDEX IF NOT EXISTS idx_bloodgas_patient_id ON blood_gas(patient_id);
+CREATE INDEX IF NOT EXISTS idx_bloodgas_collect_time ON blood_gas(collect_time);
+
+-- ----- 批次1: 新增表 -----
+
+-- 呼吸机参数设置
+CREATE TABLE IF NOT EXISTS ventilator_settings (
+    setting_id VARCHAR(20) PRIMARY KEY,
+    icu_admission_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    setting_time TIMESTAMP NOT NULL,
+    vent_mode VARCHAR(30),              -- SIMV/PSV/PRVC/AC/CPAP/ECMO
+    tv_set INTEGER,                     -- 设定潮气量 ml
+    rr_set INTEGER,                     -- 设定呼吸频率 次/分
+    fio2_set DECIMAL(5,2),              -- 设定吸入氧浓度 %
+    peep_set INTEGER,                   -- 设定PEEP cmH2O
+    pressure_support INTEGER,           -- 压力支持 cmH2O
+    ie_ratio VARCHAR(10),               -- 吸呼比
+    trigger_sensitivity DECIMAL(4,1),   -- 触发灵敏度
+    plateau_pressure INTEGER,
+    pip INTEGER,
+    operator_id VARCHAR(20),
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE ventilator_settings IS '呼吸机参数设置：呼吸机设置记录（飞利浦/迈瑞监护系统均有独立呼吸机参数表）';
+COMMENT ON COLUMN ventilator_settings.setting_id IS '设置记录主键ID';
+COMMENT ON COLUMN ventilator_settings.icu_admission_id IS '关联ICU入科ID';
+COMMENT ON COLUMN ventilator_settings.patient_id IS '患者ID';
+COMMENT ON COLUMN ventilator_settings.visit_id IS '就诊ID';
+COMMENT ON COLUMN ventilator_settings.setting_time IS '设置时间';
+COMMENT ON COLUMN ventilator_settings.vent_mode IS '通气模式：SIMV/PSV/PRVC/AC/CPAP/ECMO/Spontaneous';
+COMMENT ON COLUMN ventilator_settings.tv_set IS '设定潮气量（ml）';
+COMMENT ON COLUMN ventilator_settings.rr_set IS '设定呼吸频率（次/分）';
+COMMENT ON COLUMN ventilator_settings.fio2_set IS '设定吸入氧浓度（%）';
+COMMENT ON COLUMN ventilator_settings.peep_set IS '设定呼气末正压（cmH2O）';
+COMMENT ON COLUMN ventilator_settings.pressure_support IS '压力支持（cmH2O）';
+COMMENT ON COLUMN ventilator_settings.ie_ratio IS '吸呼比（如 1:2）';
+COMMENT ON COLUMN ventilator_settings.trigger_sensitivity IS '触发灵敏度';
+COMMENT ON COLUMN ventilator_settings.plateau_pressure IS '平台压（cmH2O）';
+COMMENT ON COLUMN ventilator_settings.pip IS '峰压（cmH2O）';
+COMMENT ON COLUMN ventilator_settings.operator_id IS '操作人ID';
+COMMENT ON COLUMN ventilator_settings.create_time IS '记录创建时间';
+
+-- 出入量明细
+CREATE TABLE IF NOT EXISTS fluid_balance (
+    balance_id VARCHAR(20) PRIMARY KEY,
+    icu_admission_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    record_date DATE NOT NULL,
+    intake_oral DECIMAL(8,1),           -- 口服入量 ml
+    intake_iv DECIMAL(8,1),             -- 静脉入量 ml
+    intake_other DECIMAL(8,1),          -- 其他入量 ml
+    output_urine DECIMAL(8,1),          -- 尿量 ml
+    output_drainage DECIMAL(8,1),       -- 引流量 ml
+    output_other DECIMAL(8,1),          -- 其他出量 ml
+    balance_total DECIMAL(8,1),         -- 出入量差值 ml
+    nurse_id VARCHAR(20),
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE fluid_balance IS '出入量明细：24小时出入量汇总（ICU 每日必做护理记录）';
+COMMENT ON COLUMN fluid_balance.balance_id IS '出入量主键ID';
+COMMENT ON COLUMN fluid_balance.icu_admission_id IS '关联ICU入科ID';
+COMMENT ON COLUMN fluid_balance.patient_id IS '患者ID';
+COMMENT ON COLUMN fluid_balance.visit_id IS '就诊ID';
+COMMENT ON COLUMN fluid_balance.record_date IS '记录日期';
+COMMENT ON COLUMN fluid_balance.intake_oral IS '口服入量（ml）';
+COMMENT ON COLUMN fluid_balance.intake_iv IS '静脉入量（ml）';
+COMMENT ON COLUMN fluid_balance.intake_other IS '其他入量（ml）';
+COMMENT ON COLUMN fluid_balance.output_urine IS '尿量（ml）';
+COMMENT ON COLUMN fluid_balance.output_drainage IS '引流量（ml）';
+COMMENT ON COLUMN fluid_balance.output_other IS '其他出量（ml）';
+COMMENT ON COLUMN fluid_balance.balance_total IS '出入量差值（ml，正=正平衡，负=负平衡）';
+COMMENT ON COLUMN fluid_balance.nurse_id IS '记录护士ID';
+COMMENT ON COLUMN fluid_balance.create_time IS '记录创建时间';
+
+-- ----- 批次1: 现有表补充字段 -----
+
+ALTER TABLE icu_admissions ADD COLUMN IF NOT EXISTS mechanical_ventilation_flag CHAR(1);
+ALTER TABLE icu_admissions ADD COLUMN IF NOT EXISTS renal_replacement_flag CHAR(1);
+ALTER TABLE icu_admissions ADD COLUMN IF NOT EXISTS vasoactive_drugs TEXT;
+ALTER TABLE icu_admissions ADD COLUMN IF NOT EXISTS nutrition_route VARCHAR(20);
+
+ALTER TABLE blood_gas ADD COLUMN IF NOT EXISTS ag DECIMAL(5,1);
+ALTER TABLE blood_gas ADD COLUMN IF NOT EXISTS osm DECIMAL(6,1);
+ALTER TABLE blood_gas ADD COLUMN IF NOT EXISTS pao2_fio2_ratio DECIMAL(6,1);
+
+-- 新增表索引
+CREATE INDEX IF NOT EXISTS idx_vent_icuadm_id ON ventilator_settings(icu_admission_id);
+CREATE INDEX IF NOT EXISTS idx_fluid_icuadm_id ON fluid_balance(icu_admission_id);
+CREATE INDEX IF NOT EXISTS idx_fluid_record_date ON fluid_balance(record_date);
+
+-- ----- 批次2: 新增表 -----
+
+-- CRRT 记录
+CREATE TABLE IF NOT EXISTS crrt_records (
+    crrt_id VARCHAR(20) PRIMARY KEY,
+    icu_admission_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+    treatment_mode VARCHAR(20),         -- CVVH/CVVHD/CVVHDF/SCUF
+    blood_flow DECIMAL(5,1),            -- ml/min
+    dialysate_flow DECIMAL(6,1),        -- ml/h
+    replacement_flow DECIMAL(6,1),      -- ml/h
+    anticoagulant VARCHAR(50),          -- 抗凝剂
+    anticoagulant_dose VARCHAR(30),
+    uf_volume DECIMAL(8,1),             -- 超滤量 ml
+    replacement_volume DECIMAL(8,1),    -- 置换量 ml
+    filter_model VARCHAR(50),
+    filter_life_hours INTEGER,          -- 滤器使用时间
+    termination_reason TEXT,
+    operator_id VARCHAR(20),
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE crrt_records IS 'CRRT 记录：连续性肾脏替代治疗记录（ICU 常规操作）';
+COMMENT ON COLUMN crrt_records.crrt_id IS 'CRRT主键ID';
+COMMENT ON COLUMN crrt_records.icu_admission_id IS '关联ICU入科ID';
+COMMENT ON COLUMN crrt_records.patient_id IS '患者ID';
+COMMENT ON COLUMN crrt_records.visit_id IS '就诊ID';
+COMMENT ON COLUMN crrt_records.start_time IS '治疗开始时间';
+COMMENT ON COLUMN crrt_records.end_time IS '治疗结束时间';
+COMMENT ON COLUMN crrt_records.treatment_mode IS '治疗模式：CVVH/CVVHD/CVVHDF/SCUF';
+COMMENT ON COLUMN crrt_records.blood_flow IS '血流速（ml/min）';
+COMMENT ON COLUMN crrt_records.dialysate_flow IS '透析液流速（ml/h）';
+COMMENT ON COLUMN crrt_records.replacement_flow IS '置换液流速（ml/h）';
+COMMENT ON COLUMN crrt_records.anticoagulant IS '抗凝剂';
+COMMENT ON COLUMN crrt_records.anticoagulant_dose IS '抗凝剂剂量';
+COMMENT ON COLUMN crrt_records.uf_volume IS '超滤量（ml）';
+COMMENT ON COLUMN crrt_records.replacement_volume IS '置换量（ml）';
+COMMENT ON COLUMN crrt_records.filter_model IS '滤器型号';
+COMMENT ON COLUMN crrt_records.filter_life_hours IS '滤器使用时间（小时）';
+COMMENT ON COLUMN crrt_records.termination_reason IS '终止原因';
+COMMENT ON COLUMN crrt_records.operator_id IS '操作人ID';
+COMMENT ON COLUMN crrt_records.create_time IS '记录创建时间';
+
+-- 镇静镇痛记录
+CREATE TABLE IF NOT EXISTS sedation_records (
+    record_id VARCHAR(20) PRIMARY KEY,
+    icu_admission_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    record_time TIMESTAMP,
+    rass_score INTEGER,                 -- Richmond躁动镇静评分 -5~+4
+    cpot_score INTEGER,                 -- 危重症疼痛观察工具 0~8
+    ramsay_score INTEGER,               -- Ramsay镇静评分 1~6
+    sedative_drug VARCHAR(100),         -- 镇静药物
+    sedative_dose VARCHAR(50),
+    analgesic_drug VARCHAR(100),        -- 镇痛药物
+    analgesic_dose VARCHAR(50),
+    muscle_relaxant VARCHAR(100),       -- 肌松药
+    nurse_id VARCHAR(20),
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE sedation_records IS '镇静镇痛记录：RASS/CPOT/Ramsay 评分及用药（ICU 质控核心）';
+COMMENT ON COLUMN sedation_records.record_id IS '记录主键ID';
+COMMENT ON COLUMN sedation_records.icu_admission_id IS '关联ICU入科ID';
+COMMENT ON COLUMN sedation_records.patient_id IS '患者ID';
+COMMENT ON COLUMN sedation_records.visit_id IS '就诊ID';
+COMMENT ON COLUMN sedation_records.record_time IS '记录时间';
+COMMENT ON COLUMN sedation_records.rass_score IS 'RASS评分（Richmond躁动镇静评分）：-5~+4';
+COMMENT ON COLUMN sedation_records.cpot_score IS 'CPOT评分（危重症疼痛观察工具）：0~8';
+COMMENT ON COLUMN sedation_records.ramsay_score IS 'Ramsay镇静评分：1~6';
+COMMENT ON COLUMN sedation_records.sedative_drug IS '镇静药物';
+COMMENT ON COLUMN sedation_records.sedative_dose IS '镇静药物剂量';
+COMMENT ON COLUMN sedation_records.analgesic_drug IS '镇痛药物';
+COMMENT ON COLUMN sedation_records.analgesic_dose IS '镇痛药物剂量';
+COMMENT ON COLUMN sedation_records.muscle_relaxant IS '肌松药物';
+COMMENT ON COLUMN sedation_records.nurse_id IS '记录护士ID';
+COMMENT ON COLUMN sedation_records.create_time IS '记录创建时间';
+
+-- 气管插管/拔管记录
+CREATE TABLE IF NOT EXISTS intubation_records (
+    record_id VARCHAR(20) PRIMARY KEY,
+    icu_admission_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    tube_type VARCHAR(20),              -- 气管插管/气管切开/喉罩
+    intubation_time TIMESTAMP,
+    extubation_time TIMESTAMP,
+    tube_size VARCHAR(10),              -- 导管型号
+    depth_cm DECIMAL(4,1),              -- 置入深度 cm
+    intubation_reason TEXT,
+    extubation_reason TEXT,
+    extubation_outcome VARCHAR(20),     -- 成功/再插管/拔管失败
+    doctor_id VARCHAR(20),
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE intubation_records IS '气管插管/拔管记录：气道管理关键记录';
+COMMENT ON COLUMN intubation_records.record_id IS '记录主键ID';
+COMMENT ON COLUMN intubation_records.icu_admission_id IS '关联ICU入科ID';
+COMMENT ON COLUMN intubation_records.patient_id IS '患者ID';
+COMMENT ON COLUMN intubation_records.visit_id IS '就诊ID';
+COMMENT ON COLUMN intubation_records.tube_type IS '导管类型：气管插管/气管切开/喉罩';
+COMMENT ON COLUMN intubation_records.intubation_time IS '插管时间';
+COMMENT ON COLUMN intubation_records.extubation_time IS '拔管时间';
+COMMENT ON COLUMN intubation_records.tube_size IS '导管型号';
+COMMENT ON COLUMN intubation_records.depth_cm IS '置入深度（cm）';
+COMMENT ON COLUMN intubation_records.intubation_reason IS '插管原因';
+COMMENT ON COLUMN intubation_records.extubation_reason IS '拔管原因';
+COMMENT ON COLUMN intubation_records.extubation_outcome IS '拔管结局：成功/再插管/拔管失败';
+COMMENT ON COLUMN intubation_records.doctor_id IS '操作医生ID';
+COMMENT ON COLUMN intubation_records.create_time IS '记录创建时间';
+
+CREATE INDEX IF NOT EXISTS idx_crrt_icuadm_id ON crrt_records(icu_admission_id);
+CREATE INDEX IF NOT EXISTS idx_sedation_icuadm_id ON sedation_records(icu_admission_id);
+CREATE INDEX IF NOT EXISTS idx_intubation_icuadm_id ON intubation_records(icu_admission_id);

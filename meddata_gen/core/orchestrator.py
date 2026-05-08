@@ -40,26 +40,39 @@ MODULE_PIPELINES: Dict[str, List[PipelineStep]] = {
         ("generate_departments", None),
         ("generate_staff", "physicians"),
         ("generate_drugs", "drugs"),
+        ("generate_beds", None),
         ("generate_patients", "patients"),
         ("generate_inpatient_visits", "inpatients"),
         ("generate_outpatient_visits", "outpatients"),
+        ("generate_registrations", "registrations"),
+        ("generate_transfer_records", "transfer_records"),
         ("generate_orders", "orders"),
         ("generate_fee_items", "fee_items"),
-        ("generate_beds", None),
+        ("generate_settlements", "settlements"),
+        ("generate_prepayments", "prepayments"),
     ],
     "emr": [
         ("generate_emr_documents", "emr_documents"),
         ("generate_progress_notes", "progress_notes"),
         ("generate_admission_records", "admission_records"),
         ("generate_discharge_records", "discharge_records"),
+        ("generate_death_records", "death_records"),
+        ("generate_consultation_records", "consultation_records"),
+        ("generate_emr_diagnoses", "emr_diagnoses"),
         ("generate_surgery_records", "surgery_records"),
         ("generate_nursing_records", "nursing_records"),
+        ("generate_transfusion_records", "transfusion_records"),
+        ("generate_informed_consents", "informed_consents"),
+        ("generate_nursing_assessments", "nursing_assessments"),
     ],
     "bingan": [
         ("generate_medical_records", "medical_records"),
         ("generate_bingan_diagnoses", "diagnoses"),
         ("generate_bingan_surgeries", "surgeries"),
         ("generate_tumor_registry", "tumors"),
+        ("generate_medical_record_borrows", "medical_record_borrows"),
+        ("generate_qc_defects", "qc_defects"),
+        ("generate_obstetric_records", "obstetric_records"),
     ],
     "lis": [
         ("generate_lab_orders", "lab_orders"),
@@ -69,6 +82,11 @@ MODULE_PIPELINES: Dict[str, List[PipelineStep]] = {
         ("generate_blood_results", "blood_results"),
         ("generate_microbiology", "microbiology"),
         ("generate_antibiotic_sensitivity", "antibiotic_sensitivity"),
+        ("generate_lab_report_master", "lab_report_master"),
+        ("generate_critical_values", "critical_values"),
+        ("generate_immunoassay_results", "immunoassay_results"),
+        ("generate_molecular_results", "molecular_results"),
+        ("generate_qc_internal", "qc_internal"),
     ],
     "ris": [
         ("generate_devices", "devices"),
@@ -77,17 +95,29 @@ MODULE_PIPELINES: Dict[str, List[PipelineStep]] = {
         ("generate_ct_reports", "ct_reports"),
         ("generate_mri_reports", "mri_reports"),
         ("generate_ultrasound_reports", "ultrasound_reports"),
+        ("generate_exam_images", "exam_images"),
+        ("generate_film_prints", "film_prints"),
+        ("generate_intervention_reports", "intervention_reports"),
+        ("generate_nuclear_medicine_reports", "nuclear_medicine_reports"),
     ],
     "ecg": [
         ("generate_ecg_exams", "ecg_exams"),
         ("generate_ecg_waveforms", "waveforms"),
         ("generate_ecg_analyses", "analyses"),
+        ("generate_holter_records", "holter_records"),
+        ("generate_holter_events", "holter_events"),
+        ("generate_stress_test_records", "stress_test_records"),
     ],
     "icu": [
         ("generate_icu_admissions", "icu_admissions"),
         ("generate_monitoring_data", "monitoring_data"),
         ("generate_alarms", "alarms"),
         ("generate_blood_gas", "blood_gas"),
+        ("generate_ventilator_settings", "ventilator_settings"),
+        ("generate_fluid_balance", "fluid_balance"),
+        ("generate_crrt_records", "crrt_records"),
+        ("generate_sedation_records", "sedation_records"),
+        ("generate_intubation_records", "intubation_records"),
     ],
 }
 
@@ -260,3 +290,59 @@ class Orchestrator:
                     gen.close()
         if self.his_state is not None:
             self.his_state.close()
+
+
+# ----- 事件驱动编排 -----
+
+
+def run_event_driven(
+    db_config: dict,
+    scale: float = 1.0,
+    seed: Optional[int] = None,
+    output_format: str = "postgres",
+    output_dir: Optional[str] = None,
+) -> None:
+    """使用事件驱动生成器一次性生成所有系统的数据。"""
+    # 延迟导入避免循环依赖
+    from meddata_gen.generators.event_driven import EventDrivenGenerator
+    from meddata_gen.output import CSVWriter, FHIRBundleWriter, PostgresWriter
+
+    # 根据输出格式创建 writer
+    writer = None
+    if output_format == "csv":
+        writer = CSVWriter(output_dir or "output/csv")
+    elif output_format == "fhir":
+        writer = FHIRBundleWriter(output_dir or "output/fhir")
+    elif output_format == "postgres":
+        writer = PostgresWriter(db_config)
+    else:
+        raise ValueError(f"不支持的输出格式: {output_format}")
+
+    gen = EventDrivenGenerator(db_config, seed=seed, writer=writer)
+
+    # Phase 1: 基础字典数据（ departments / staff / drugs / patients / beds ）
+    # 需要先连接到 his_db，因为 HISMixin 的方法使用 BaseGenerator._batch_insert
+    gen.connect("his_db")
+    print("\n" + "=" * 60)
+    print("  Event-Driven: 基础字典数据")
+    print("=" * 60)
+    gen.generate_departments()
+    gen.generate_staff(_scaled_counts("his_db", scale).get("physicians", 200))
+    gen.generate_drugs(_scaled_counts("his_db", scale).get("drugs", 500))
+    gen.generate_patients(_scaled_counts("his_db", scale).get("patients", 5000))
+    gen.generate_beds()
+    gen.close()
+
+    # Phase 2: 患者旅程（跨系统事件驱动）
+    # Materializer 使用自己的 writer（PostgresWriter/CSVWriter/FHIRBundleWriter），
+    # 不依赖 BaseGenerator 的连接
+    print("\n" + "=" * 60)
+    print("  Event-Driven: 患者旅程")
+    print("=" * 60)
+    gen.generate_journeys(
+        inpatient_count=_scaled_counts("his_db", scale).get("inpatients", 8000),
+        outpatient_count=_scaled_counts("his_db", scale).get("outpatients", 20000),
+    )
+
+    print("\n[OK] 事件驱动生成完成")
+

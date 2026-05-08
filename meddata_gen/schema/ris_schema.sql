@@ -293,9 +293,192 @@ COMMENT ON COLUMN ultrasound_reports.audit_time IS '审核时间';
 COMMENT ON COLUMN ultrasound_reports.critical_value IS '是否危急值：Y/N';
 COMMENT ON COLUMN ultrasound_reports.create_time IS '记录创建时间';
 
-CREATE INDEX idx_examorder_patient_id ON exam_orders(patient_id);
-CREATE INDEX idx_examorder_visit_id ON exam_orders(visit_id);
-CREATE INDEX idx_xray_order_id ON xray_reports(order_id);
-CREATE INDEX idx_ct_order_id ON ct_reports(order_id);
-CREATE INDEX idx_mri_order_id ON mri_reports(order_id);
-CREATE INDEX idx_us_order_id ON ultrasound_reports(order_id);
+CREATE INDEX IF NOT EXISTS idx_examorder_patient_id ON exam_orders(patient_id);
+CREATE INDEX IF NOT EXISTS idx_examorder_visit_id ON exam_orders(visit_id);
+CREATE INDEX IF NOT EXISTS idx_xray_order_id ON xray_reports(order_id);
+CREATE INDEX IF NOT EXISTS idx_ct_order_id ON ct_reports(order_id);
+CREATE INDEX IF NOT EXISTS idx_mri_order_id ON mri_reports(order_id);
+CREATE INDEX IF NOT EXISTS idx_us_order_id ON ultrasound_reports(order_id);
+
+-- ----- 批次1: 新增表 -----
+
+-- 检查图像/序列信息
+CREATE TABLE IF NOT EXISTS exam_images (
+    image_id VARCHAR(20) PRIMARY KEY,
+    order_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    series_uid VARCHAR(64),
+    study_uid VARCHAR(64),
+    modality VARCHAR(20),
+    image_count INTEGER,
+    storage_path TEXT,
+    file_size_mb DECIMAL(8,2),
+    upload_time TIMESTAMP,
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE exam_images IS '检查图像/序列信息：DICOM 序列级信息（GE/联影 PACS 核心表）';
+COMMENT ON COLUMN exam_images.image_id IS '图像记录主键ID';
+COMMENT ON COLUMN exam_images.order_id IS '关联检查申请ID';
+COMMENT ON COLUMN exam_images.patient_id IS '患者ID';
+COMMENT ON COLUMN exam_images.visit_id IS '就诊ID';
+COMMENT ON COLUMN exam_images.series_uid IS 'DICOM Series Instance UID';
+COMMENT ON COLUMN exam_images.study_uid IS 'DICOM Study Instance UID';
+COMMENT ON COLUMN exam_images.modality IS '影像模态';
+COMMENT ON COLUMN exam_images.image_count IS '序列内图像数量';
+COMMENT ON COLUMN exam_images.storage_path IS '存储路径';
+COMMENT ON COLUMN exam_images.file_size_mb IS '文件大小（MB）';
+COMMENT ON COLUMN exam_images.upload_time IS '上传时间';
+COMMENT ON COLUMN exam_images.create_time IS '记录创建时间';
+
+-- ----- 批次1: 现有表补充字段 -----
+
+ALTER TABLE exam_orders ADD COLUMN IF NOT EXISTS technician_id VARCHAR(20);
+ALTER TABLE exam_orders ADD COLUMN IF NOT EXISTS technician_name VARCHAR(50);
+ALTER TABLE exam_orders ADD COLUMN IF NOT EXISTS exam_duration_minutes INTEGER;
+ALTER TABLE exam_orders ADD COLUMN IF NOT EXISTS contrast_reaction TEXT;
+ALTER TABLE exam_orders ADD COLUMN IF NOT EXISTS radiation_dose_msv DECIMAL(8,4);
+
+ALTER TABLE xray_reports ADD COLUMN IF NOT EXISTS ai_findings TEXT;
+ALTER TABLE xray_reports ADD COLUMN IF NOT EXISTS template_id VARCHAR(20);
+ALTER TABLE xray_reports ADD COLUMN IF NOT EXISTS comparison_study_uid VARCHAR(64);
+ALTER TABLE xray_reports ADD COLUMN IF NOT EXISTS key_image_count INTEGER;
+ALTER TABLE xray_reports ADD COLUMN IF NOT EXISTS report_complexity VARCHAR(20);
+
+ALTER TABLE ct_reports ADD COLUMN IF NOT EXISTS ai_findings TEXT;
+ALTER TABLE ct_reports ADD COLUMN IF NOT EXISTS template_id VARCHAR(20);
+ALTER TABLE ct_reports ADD COLUMN IF NOT EXISTS comparison_study_uid VARCHAR(64);
+ALTER TABLE ct_reports ADD COLUMN IF NOT EXISTS key_image_count INTEGER;
+ALTER TABLE ct_reports ADD COLUMN IF NOT EXISTS report_complexity VARCHAR(20);
+
+ALTER TABLE mri_reports ADD COLUMN IF NOT EXISTS ai_findings TEXT;
+ALTER TABLE mri_reports ADD COLUMN IF NOT EXISTS template_id VARCHAR(20);
+ALTER TABLE mri_reports ADD COLUMN IF NOT EXISTS comparison_study_uid VARCHAR(64);
+ALTER TABLE mri_reports ADD COLUMN IF NOT EXISTS key_image_count INTEGER;
+ALTER TABLE mri_reports ADD COLUMN IF NOT EXISTS report_complexity VARCHAR(20);
+
+ALTER TABLE ultrasound_reports ADD COLUMN IF NOT EXISTS ai_findings TEXT;
+ALTER TABLE ultrasound_reports ADD COLUMN IF NOT EXISTS template_id VARCHAR(20);
+ALTER TABLE ultrasound_reports ADD COLUMN IF NOT EXISTS comparison_study_uid VARCHAR(64);
+ALTER TABLE ultrasound_reports ADD COLUMN IF NOT EXISTS key_image_count INTEGER;
+ALTER TABLE ultrasound_reports ADD COLUMN IF NOT EXISTS report_complexity VARCHAR(20);
+
+-- 新增表索引
+CREATE INDEX IF NOT EXISTS idx_examimage_order_id ON exam_images(order_id);
+CREATE INDEX IF NOT EXISTS idx_examimage_study_uid ON exam_images(study_uid);
+
+-- ----- 批次2: 新增表 -----
+
+-- 胶片打印记录
+CREATE TABLE IF NOT EXISTS film_prints (
+    print_id VARCHAR(20) PRIMARY KEY,
+    order_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    print_time TIMESTAMP,
+    film_size VARCHAR(20),              -- 14×17/10×12/8×10/14×14
+    sheet_count INTEGER,                -- 张数
+    printer_id VARCHAR(20),
+    operator_id VARCHAR(20),
+    cost DECIMAL(8,2),
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE film_prints IS '胶片打印记录：放射科胶片打印流水';
+COMMENT ON COLUMN film_prints.print_id IS '打印主键ID';
+COMMENT ON COLUMN film_prints.order_id IS '关联检查申请ID';
+COMMENT ON COLUMN film_prints.patient_id IS '患者ID';
+COMMENT ON COLUMN film_prints.print_time IS '打印时间';
+COMMENT ON COLUMN film_prints.film_size IS '胶片尺寸：14×17/10×12/8×10/14×14';
+COMMENT ON COLUMN film_prints.sheet_count IS '打印张数';
+COMMENT ON COLUMN film_prints.printer_id IS '打印机ID';
+COMMENT ON COLUMN film_prints.operator_id IS '操作人ID';
+COMMENT ON COLUMN film_prints.cost IS '费用';
+COMMENT ON COLUMN film_prints.create_time IS '记录创建时间';
+
+-- 介入/DSA 报告
+CREATE TABLE IF NOT EXISTS intervention_reports (
+    report_id VARCHAR(20) PRIMARY KEY,
+    order_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    procedure_name VARCHAR(200),
+    access_route VARCHAR(50),           -- 股动脉/桡动脉/颈静脉等
+    contrast_agent VARCHAR(50),
+    contrast_volume_ml INTEGER,
+    procedure_start_time TIMESTAMP,
+    procedure_end_time TIMESTAMP,
+    findings TEXT,
+    impression TEXT,
+    complications TEXT,                 -- 并发症
+    report_status VARCHAR(20),
+    reporter_id VARCHAR(20),
+    report_time TIMESTAMP,
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE intervention_reports IS '介入/DSA 报告：数字减影血管造影及介入治疗独立报告';
+COMMENT ON COLUMN intervention_reports.report_id IS '报告主键ID';
+COMMENT ON COLUMN intervention_reports.order_id IS '关联检查申请ID';
+COMMENT ON COLUMN intervention_reports.patient_id IS '患者ID';
+COMMENT ON COLUMN intervention_reports.visit_id IS '就诊ID';
+COMMENT ON COLUMN intervention_reports.procedure_name IS '介入手术/操作名称';
+COMMENT ON COLUMN intervention_reports.access_route IS '入路：股动脉/桡动脉/颈静脉/股静脉等';
+COMMENT ON COLUMN intervention_reports.contrast_agent IS '使用造影剂';
+COMMENT ON COLUMN intervention_reports.contrast_volume_ml IS '造影剂用量（ml）';
+COMMENT ON COLUMN intervention_reports.procedure_start_time IS '操作开始时间';
+COMMENT ON COLUMN intervention_reports.procedure_end_time IS '操作结束时间';
+COMMENT ON COLUMN intervention_reports.findings IS '操作所见';
+COMMENT ON COLUMN intervention_reports.impression IS '诊断印象';
+COMMENT ON COLUMN intervention_reports.complications IS '并发症';
+COMMENT ON COLUMN intervention_reports.report_status IS '报告状态';
+COMMENT ON COLUMN intervention_reports.reporter_id IS '报告医生ID';
+COMMENT ON COLUMN intervention_reports.report_time IS '报告时间';
+COMMENT ON COLUMN intervention_reports.create_time IS '记录创建时间';
+
+CREATE INDEX IF NOT EXISTS idx_film_order_id ON film_prints(order_id);
+CREATE INDEX IF NOT EXISTS idx_intervention_order_id ON intervention_reports(order_id);
+
+-- ----- 批次3: 新增表 -----
+
+-- 核医学报告
+CREATE TABLE IF NOT EXISTS nuclear_medicine_reports (
+    report_id VARCHAR(20) PRIMARY KEY,
+    order_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    exam_type VARCHAR(20),              -- PET/ECT/SPECT
+    exam_part VARCHAR(100),
+    radiopharmaceutical VARCHAR(100),   -- 放射性药物
+    injected_dose_mbq DECIMAL(8,2),     -- 注射剂量 MBq
+    injected_time TIMESTAMP,
+    uptake_rate VARCHAR(50),            -- 摄取率
+    imaging_time TIMESTAMP,
+    findings TEXT,
+    impression TEXT,
+    suv_max DECIMAL(6,2),               -- PET最大SUV值
+    comparison_result VARCHAR(50),
+    report_status VARCHAR(20),
+    reporter_id VARCHAR(20),
+    report_time TIMESTAMP,
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE nuclear_medicine_reports IS '核医学报告：PET/ECT/SPECT 独立报告';
+COMMENT ON COLUMN nuclear_medicine_reports.report_id IS '报告主键ID';
+COMMENT ON COLUMN nuclear_medicine_reports.order_id IS '关联检查申请ID';
+COMMENT ON COLUMN nuclear_medicine_reports.patient_id IS '患者ID';
+COMMENT ON COLUMN nuclear_medicine_reports.visit_id IS '就诊ID';
+COMMENT ON COLUMN nuclear_medicine_reports.exam_type IS '检查类型：PET/ECT/SPECT';
+COMMENT ON COLUMN nuclear_medicine_reports.exam_part IS '检查部位';
+COMMENT ON COLUMN nuclear_medicine_reports.radiopharmaceutical IS '放射性药物';
+COMMENT ON COLUMN nuclear_medicine_reports.injected_dose_mbq IS '注射剂量（MBq）';
+COMMENT ON COLUMN nuclear_medicine_reports.injected_time IS '注射时间';
+COMMENT ON COLUMN nuclear_medicine_reports.uptake_rate IS '摄取率';
+COMMENT ON COLUMN nuclear_medicine_reports.imaging_time IS '显像时间';
+COMMENT ON COLUMN nuclear_medicine_reports.findings IS '影像所见';
+COMMENT ON COLUMN nuclear_medicine_reports.impression IS '诊断意见';
+COMMENT ON COLUMN nuclear_medicine_reports.suv_max IS '最大SUV值（PET）';
+COMMENT ON COLUMN nuclear_medicine_reports.comparison_result IS '与既往对比';
+COMMENT ON COLUMN nuclear_medicine_reports.report_status IS '报告状态';
+COMMENT ON COLUMN nuclear_medicine_reports.reporter_id IS '报告医生ID';
+COMMENT ON COLUMN nuclear_medicine_reports.report_time IS '报告时间';
+COMMENT ON COLUMN nuclear_medicine_reports.create_time IS '记录创建时间';
+
+CREATE INDEX IF NOT EXISTS idx_nuclear_order_id ON nuclear_medicine_reports(order_id);

@@ -417,11 +417,215 @@ COMMENT ON COLUMN beds.visit_id IS '当前占床就诊ID';
 COMMENT ON COLUMN beds.price IS '床位日单价';
 COMMENT ON COLUMN beds.create_time IS '记录创建时间';
 
-CREATE INDEX idx_patients_name ON patients(patient_name);
-CREATE INDEX idx_inpatient_patient_id ON inpatient_visits(patient_id);
-CREATE INDEX idx_inpatient_admission_time ON inpatient_visits(admission_time);
-CREATE INDEX idx_outpatient_patient_id ON outpatient_visits(patient_id);
-CREATE INDEX idx_outpatient_visit_date ON outpatient_visits(visit_date);
-CREATE INDEX idx_orders_visit_id ON orders(visit_id);
-CREATE INDEX idx_fee_visit_id ON fee_items(visit_id);
-CREATE INDEX idx_staff_dept_id ON staff(dept_id);
+CREATE INDEX IF NOT EXISTS idx_patients_name ON patients(patient_name);
+CREATE INDEX IF NOT EXISTS idx_inpatient_patient_id ON inpatient_visits(patient_id);
+CREATE INDEX IF NOT EXISTS idx_inpatient_admission_time ON inpatient_visits(admission_time);
+CREATE INDEX IF NOT EXISTS idx_outpatient_patient_id ON outpatient_visits(patient_id);
+CREATE INDEX IF NOT EXISTS idx_outpatient_visit_date ON outpatient_visits(visit_date);
+CREATE INDEX IF NOT EXISTS idx_orders_visit_id ON orders(visit_id);
+CREATE INDEX IF NOT EXISTS idx_fee_visit_id ON fee_items(visit_id);
+CREATE INDEX IF NOT EXISTS idx_staff_dept_id ON staff(dept_id);
+
+-- ----- 批次1: 新增表 -----
+
+-- 挂号记录
+CREATE TABLE IF NOT EXISTS registrations (
+    reg_id VARCHAR(20) PRIMARY KEY,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    reg_time TIMESTAMP NOT NULL,
+    reg_type VARCHAR(20),               -- 现场/预约/急诊/转诊
+    reg_dept_id VARCHAR(20),
+    reg_doctor_id VARCHAR(20),
+    fee_type VARCHAR(20),               -- 普通/专家/特需/急诊
+    sequence_no INTEGER,                -- 就诊序号
+    status VARCHAR(20),                 -- 候诊/就诊/过号/退号/爽约
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE registrations IS '挂号记录：门诊/急诊就诊的挂号登记信息（东软/卫宁 HIS 均有独立挂号主表）';
+COMMENT ON COLUMN registrations.reg_id IS '挂号主键ID';
+COMMENT ON COLUMN registrations.patient_id IS '患者ID（关联 patients.patient_id）';
+COMMENT ON COLUMN registrations.visit_id IS '关联就诊ID（门诊 visit_id）';
+COMMENT ON COLUMN registrations.reg_time IS '挂号时间';
+COMMENT ON COLUMN registrations.reg_type IS '挂号类型：现场挂号/预约挂号/急诊挂号/转诊挂号';
+COMMENT ON COLUMN registrations.reg_dept_id IS '挂号科室ID';
+COMMENT ON COLUMN registrations.reg_doctor_id IS '挂号医生ID';
+COMMENT ON COLUMN registrations.fee_type IS '挂号费类型：普通/专家/特需/急诊';
+COMMENT ON COLUMN registrations.sequence_no IS '当日就诊序号';
+COMMENT ON COLUMN registrations.status IS '挂号状态：候诊/就诊中/已就诊/过号/退号/爽约';
+COMMENT ON COLUMN registrations.create_time IS '记录创建时间';
+
+-- 转科记录
+CREATE TABLE IF NOT EXISTS transfer_records (
+    transfer_id VARCHAR(20) PRIMARY KEY,
+    visit_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    from_dept_id VARCHAR(20),
+    to_dept_id VARCHAR(20) NOT NULL,
+    transfer_time TIMESTAMP NOT NULL,
+    transfer_reason TEXT,
+    bed_no VARCHAR(10),
+    doctor_id VARCHAR(20),
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE transfer_records IS '转科记录：住院期间患者转科信息（东软 HIS 独立转科模块）';
+COMMENT ON COLUMN transfer_records.transfer_id IS '转科记录主键ID';
+COMMENT ON COLUMN transfer_records.visit_id IS '住院就诊ID（关联 inpatient_visits.visit_id）';
+COMMENT ON COLUMN transfer_records.patient_id IS '患者ID';
+COMMENT ON COLUMN transfer_records.from_dept_id IS '转出科室ID';
+COMMENT ON COLUMN transfer_records.to_dept_id IS '转入科室ID';
+COMMENT ON COLUMN transfer_records.transfer_time IS '转科时间';
+COMMENT ON COLUMN transfer_records.transfer_reason IS '转科原因';
+COMMENT ON COLUMN transfer_records.bed_no IS '转入后床位号';
+COMMENT ON COLUMN transfer_records.doctor_id IS '经治医生ID';
+COMMENT ON COLUMN transfer_records.create_time IS '记录创建时间';
+
+-- 结算主表
+CREATE TABLE IF NOT EXISTS settlements (
+    settlement_id VARCHAR(20) PRIMARY KEY,
+    visit_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    settlement_type VARCHAR(20),        -- 出院结算/中途结算/门诊结算/急诊结算
+    settlement_time TIMESTAMP,
+    total_amount DECIMAL(12,2),
+    insurance_pay DECIMAL(12,2),
+    self_pay DECIMAL(12,2),
+    invoice_no VARCHAR(30),
+    settlement_status VARCHAR(20),      -- 已结算/已作废/已冲正
+    cashier_id VARCHAR(20),
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE settlements IS '结算主表：住院/门诊费用结算头表（医保结算/自费结算的汇总信息）';
+COMMENT ON COLUMN settlements.settlement_id IS '结算主键ID';
+COMMENT ON COLUMN settlements.visit_id IS '关联就诊ID';
+COMMENT ON COLUMN settlements.patient_id IS '患者ID';
+COMMENT ON COLUMN settlements.settlement_type IS '结算类型：出院结算/中途结算/门诊结算/急诊结算';
+COMMENT ON COLUMN settlements.settlement_time IS '结算时间';
+COMMENT ON COLUMN settlements.total_amount IS '结算总金额';
+COMMENT ON COLUMN settlements.insurance_pay IS '医保支付金额';
+COMMENT ON COLUMN settlements.self_pay IS '个人自付金额';
+COMMENT ON COLUMN settlements.invoice_no IS '发票号';
+COMMENT ON COLUMN settlements.settlement_status IS '结算状态：已结算/已作废/已冲正';
+COMMENT ON COLUMN settlements.cashier_id IS '收费员ID';
+COMMENT ON COLUMN settlements.create_time IS '记录创建时间';
+
+-- 预交金记录
+CREATE TABLE IF NOT EXISTS prepayments (
+    prepay_id VARCHAR(20) PRIMARY KEY,
+    visit_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    prepay_time TIMESTAMP NOT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    pay_method VARCHAR(20),             -- 现金/银行卡/微信/支付宝/医保卡
+    receipt_no VARCHAR(30),
+    balance DECIMAL(12,2),
+    operator_id VARCHAR(20),
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE prepayments IS '预交金记录：住院患者预交金的缴存/使用/退还流水（卫宁 HIS 预交金管理子模块）';
+COMMENT ON COLUMN prepayments.prepay_id IS '预交金记录主键ID';
+COMMENT ON COLUMN prepayments.visit_id IS '住院就诊ID';
+COMMENT ON COLUMN prepayments.patient_id IS '患者ID';
+COMMENT ON COLUMN prepayments.prepay_time IS '缴存时间';
+COMMENT ON COLUMN prepayments.amount IS '缴存金额（负数表示退费）';
+COMMENT ON COLUMN prepayments.pay_method IS '支付方式：现金/银行卡/微信/支付宝/医保卡';
+COMMENT ON COLUMN prepayments.receipt_no IS '收据号';
+COMMENT ON COLUMN prepayments.balance IS '缴存后余额';
+COMMENT ON COLUMN prepayments.operator_id IS '收费操作员ID';
+COMMENT ON COLUMN prepayments.create_time IS '记录创建时间';
+
+-- ----- 批次1: 现有表补充字段 -----
+
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS contact_relation VARCHAR(20);
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS height DECIMAL(5,1);
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS weight DECIMAL(6,2);
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS card_no VARCHAR(30);
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS register_user_id VARCHAR(20);
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS first_visit_date DATE;
+
+ALTER TABLE inpatient_visits ADD COLUMN IF NOT EXISTS admission_weight DECIMAL(6,2);
+ALTER TABLE inpatient_visits ADD COLUMN IF NOT EXISTS admission_height DECIMAL(5,1);
+ALTER TABLE inpatient_visits ADD COLUMN IF NOT EXISTS allergy_drugs TEXT;
+ALTER TABLE inpatient_visits ADD COLUMN IF NOT EXISTS companion_name VARCHAR(50);
+ALTER TABLE inpatient_visits ADD COLUMN IF NOT EXISTS companion_phone VARCHAR(20);
+ALTER TABLE inpatient_visits ADD COLUMN IF NOT EXISTS surgery_flag CHAR(1);
+ALTER TABLE inpatient_visits ADD COLUMN IF NOT EXISTS rescue_count INTEGER DEFAULT 0;
+ALTER TABLE inpatient_visits ADD COLUMN IF NOT EXISTS critical_flag CHAR(1);
+
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS practice_scope VARCHAR(200);
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS practice_location VARCHAR(200);
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS signature_image TEXT;
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS role_code VARCHAR(20);
+
+-- 新增表索引
+CREATE INDEX IF NOT EXISTS idx_reg_patient_id ON registrations(patient_id);
+CREATE INDEX IF NOT EXISTS idx_transfer_visit_id ON transfer_records(visit_id);
+CREATE INDEX IF NOT EXISTS idx_settlement_visit_id ON settlements(visit_id);
+CREATE INDEX IF NOT EXISTS idx_prepay_visit_id ON prepayments(visit_id);
+
+-- ----- 批次2: 新增表 -----
+
+-- 发药记录
+CREATE TABLE IF NOT EXISTS drug_dispenses (
+    dispense_id VARCHAR(20) PRIMARY KEY,
+    order_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    dispense_time TIMESTAMP,
+    pharmacy_id VARCHAR(20),            -- 药房ID
+    pharmacist_id VARCHAR(20),
+    status VARCHAR(20),                 -- 待配药/已配药/已发药/已退药
+    return_reason TEXT,
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE drug_dispenses IS '发药记录：医嘱执行闭环的关键环节，连接医嘱-药房-患者';
+COMMENT ON COLUMN drug_dispenses.dispense_id IS '发药主键ID';
+COMMENT ON COLUMN drug_dispenses.order_id IS '关联医嘱ID';
+COMMENT ON COLUMN drug_dispenses.patient_id IS '患者ID';
+COMMENT ON COLUMN drug_dispenses.visit_id IS '就诊ID';
+COMMENT ON COLUMN drug_dispenses.dispense_time IS '发药时间';
+COMMENT ON COLUMN drug_dispenses.pharmacy_id IS '药房ID';
+COMMENT ON COLUMN drug_dispenses.pharmacist_id IS '发药药师ID';
+COMMENT ON COLUMN drug_dispenses.status IS '发药状态：待配药/已配药/已发药/已退药';
+COMMENT ON COLUMN drug_dispenses.return_reason IS '退药原因';
+COMMENT ON COLUMN drug_dispenses.create_time IS '记录创建时间';
+
+-- 手术排程
+CREATE TABLE IF NOT EXISTS operation_schedules (
+    schedule_id VARCHAR(20) PRIMARY KEY,
+    visit_id VARCHAR(20) NOT NULL,
+    patient_id VARCHAR(20) NOT NULL,
+    surgery_name VARCHAR(200),
+    surgery_code VARCHAR(20),           -- ICD-9-CM3
+    surgery_room VARCHAR(20),
+    schedule_date DATE,
+    schedule_start_time TIMESTAMP,
+    schedule_end_time TIMESTAMP,
+    surgeon_id VARCHAR(20),
+    anesthesia_doctor_id VARCHAR(20),
+    scrub_nurse_id VARCHAR(20),
+    circulating_nurse_id VARCHAR(20),
+    status VARCHAR(20),                 -- 已申请/已排程/已完成/已取消
+    cancel_reason TEXT,
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE operation_schedules IS '手术排程：HIS 手术申请与排程管理（与 EMR 手术记录不同，这是管理视角）';
+COMMENT ON COLUMN operation_schedules.schedule_id IS '排程主键ID';
+COMMENT ON COLUMN operation_schedules.visit_id IS '住院就诊ID';
+COMMENT ON COLUMN operation_schedules.patient_id IS '患者ID';
+COMMENT ON COLUMN operation_schedules.surgery_name IS '手术名称';
+COMMENT ON COLUMN operation_schedules.surgery_code IS '手术ICD-9-CM3编码';
+COMMENT ON COLUMN operation_schedules.surgery_room IS '手术间';
+COMMENT ON COLUMN operation_schedules.schedule_date IS '排程日期';
+COMMENT ON COLUMN operation_schedules.schedule_start_time IS '预计开始时间';
+COMMENT ON COLUMN operation_schedules.schedule_end_time IS '预计结束时间';
+COMMENT ON COLUMN operation_schedules.surgeon_id IS '主刀医生ID';
+COMMENT ON COLUMN operation_schedules.anesthesia_doctor_id IS '麻醉医生ID';
+COMMENT ON COLUMN operation_schedules.scrub_nurse_id IS '器械护士ID';
+COMMENT ON COLUMN operation_schedules.circulating_nurse_id IS '巡回护士ID';
+COMMENT ON COLUMN operation_schedules.status IS '排程状态：已申请/已排程/已完成/已取消';
+COMMENT ON COLUMN operation_schedules.cancel_reason IS '取消原因';
+COMMENT ON COLUMN operation_schedules.create_time IS '记录创建时间';
+
+CREATE INDEX IF NOT EXISTS idx_dispense_order_id ON drug_dispenses(order_id);
+CREATE INDEX IF NOT EXISTS idx_schedule_visit_id ON operation_schedules(visit_id);

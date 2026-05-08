@@ -104,6 +104,11 @@ class RISMixin:
                 maybe_null(order_time + timedelta(hours=random.randint(1, 48)), 0.30),
                 maybe_null(order_time + timedelta(hours=random.randint(2, 72)), 0.35),
                 round(random.uniform(50, 5000), 2),
+                maybe_null(random.choice(doctor_ids) if doctor_ids else None, 0.30),
+                maybe_null(generate_name(), 0.15),
+                maybe_null(random.randint(5, 120), 0.25),
+                maybe_null(random.choice(["无", "轻度", "中度", "重度"]), 0.50),
+                maybe_null(round(random.uniform(0.1, 15.0), 2), 0.40),
                 datetime.now(), None
             ))
 
@@ -113,7 +118,9 @@ class RISMixin:
              "exam_type", "exam_item_code", "exam_item_name", "exam_part", "exam_method",
              "clinical_diagnosis", "purpose", "priority", "pregnancy_status",
              "allergy_history", "contrast_agent", "order_status", "device_id",
-             "appointment_time", "exam_time", "fee", "create_time", "update_time"],
+             "appointment_time", "exam_time", "fee", "technician_id", "technician_name",
+             "exam_duration_minutes", "contrast_reaction", "radiation_dose_msv",
+             "create_time", "update_time"],
             rows)
         print(f"  [RIS] exam_orders: {len(rows)} rows")
 
@@ -186,6 +193,11 @@ class RISMixin:
                 ])
 
             base_row.extend([
+                maybe_null("AI辅助诊断结果", 0.60),
+                maybe_null(f"TPL{random.randint(100, 999)}", 0.30),
+                maybe_null(f"STU{random.randint(1000000, 9999999)}", 0.40),
+                maybe_null(random.randint(1, 8), 0.25),
+                maybe_null(random.choice(["简单", "一般", "复杂"]), 0.30),
                 random.choice(["草稿", "已提交", "已审核"]),
                 reporter,
                 maybe_null(generate_name(), 0.15),
@@ -211,8 +223,9 @@ class RISMixin:
                               "measurements", "images_count", "video_flag"])
         if report_type != "ultrasound":
             all_fields.extend(["findings", "impression"])
-        all_fields.extend(["report_status", "reporter_id", "reporter_name",
-                          "report_time", "auditor_id", "auditor_name", "audit_time", "critical_value", "create_time"])
+        all_fields.extend(["ai_findings", "template_id", "comparison_study_uid", "key_image_count",
+                           "report_complexity", "report_status", "reporter_id", "reporter_name",
+                           "report_time", "auditor_id", "auditor_name", "audit_time", "critical_value", "create_time"])
 
         self._batch_insert(table, all_fields, rows)
         print(f"  [RIS] {table}: {len(rows)} rows")
@@ -237,3 +250,169 @@ class RISMixin:
         """生成超声报告"""
         self._generate_ris_reports("ultrasound_reports", count, "ultrasound",
             [], lambda i: [random.choice(["B超", "彩超", "三维", "造影"]), maybe_null("5-12MHz", 0.20)])
+
+    def generate_exam_images(self, count: int = 50000):
+        """生成检查图像"""
+        rows = []
+        modalities = ["DR", "CT", "MRI", "US", "MG", "RF", "PET"]
+
+        for i in range(count):
+            if self._should_link("ris_db") and self.patients:
+                patient = random.choice(self.patients)
+                patient_id = patient[0]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+
+            order_id = f"EO{random.randint(1, 25000)}"
+            modality = random.choice(modalities)
+            image_count = random.randint(1, 500)
+
+            rows.append((
+                f"IMG{str(i+1).zfill(8)}", order_id, patient_id,
+                f"IV{random.randint(1, 8000)}",
+                maybe_null(f"1.2.840.{random.randint(100000, 999999)}.{random.randint(1, 9999)}", 0.10),
+                maybe_null(f"1.2.840.{random.randint(100000, 999999)}.{random.randint(1, 9999)}", 0.10),
+                modality,
+                image_count,
+                maybe_null(f"/storage/{modality.lower()}/{random.randint(2023, 2024)}/{random.randint(1, 12):02d}/{order_id}", 0.15),
+                round(random.uniform(0.5, 2000.0), 2),
+                random_datetime("2023-01-01", "2024-12-31"),
+                datetime.now()
+            ))
+
+        self._batch_insert("exam_images",
+            ["image_id", "order_id", "patient_id", "visit_id", "series_uid", "study_uid",
+             "modality", "image_count", "storage_path", "file_size_mb", "upload_time", "create_time"],
+            rows)
+        print(f"  [RIS] exam_images: {len(rows)} rows")
+
+    def generate_film_prints(self, count: int = 15000):
+        """生成胶片打印"""
+        rows = []
+        staff_ids = [s[0] for s in self.staff]
+
+        for i in range(count):
+            if self._should_link("ris_db") and self.patients:
+                patient = random.choice(self.patients)
+                patient_id = patient[0]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+
+            order_id = f"EO{random.randint(1, 25000)}"
+            print_time = random_datetime("2023-01-01", "2024-12-31")
+            operator = random.choice(staff_ids) if staff_ids else None
+
+            rows.append((
+                f"FP{str(i+1).zfill(7)}", order_id, patient_id,
+                print_time,
+                random.choice(["8x10", "10x12", "11x14", "14x17"]),
+                random.randint(1, 10),
+                maybe_null(f"PR{random.randint(1, 20):02d}", 0.20),
+                operator,
+                round(random.uniform(5.0, 200.0), 2),
+                datetime.now()
+            ))
+
+        self._batch_insert("film_prints",
+            ["print_id", "order_id", "patient_id", "print_time", "film_size",
+             "sheet_count", "printer_id", "operator_id", "cost", "create_time"],
+            rows)
+        print(f"  [RIS] film_prints: {len(rows)} rows")
+
+    def generate_intervention_reports(self, count: int = 2000):
+        """生成介入报告"""
+        rows = []
+        doctor_ids = [s[0] for s in self.staff if s[10] == "医生"]
+        procedures = [
+            "冠状动脉造影", "经皮冠状动脉介入治疗", "射频消融术",
+            "起搏器植入术", "支架植入术", "栓塞术", "引流术",
+            "穿刺活检", "椎体成形术", "血管成形术",
+        ]
+
+        for i in range(count):
+            if self._should_link("ris_db") and self.patients:
+                patient = random.choice(self.patients)
+                patient_id = patient[0]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+
+            order_id = f"EO{random.randint(1, 25000)}"
+            procedure = random.choice(procedures)
+            start_time = random_datetime("2023-01-01", "2024-12-31")
+            duration = random.randint(30, 240)
+            end_time = start_time + timedelta(minutes=duration)
+            reporter = random.choice(doctor_ids) if doctor_ids else None
+
+            rows.append((
+                f"IR{str(i+1).zfill(7)}", order_id, patient_id,
+                f"IV{random.randint(1, 8000)}",
+                procedure,
+                random.choice(["股动脉", "桡动脉", "颈静脉", "股静脉", "经皮"]),
+                maybe_null("碘海醇", 0.30),
+                maybe_null(random.randint(50, 300), 0.30),
+                start_time,
+                end_time,
+                maybe_null("手术过程顺利...", 0.15),
+                maybe_null("术后情况良好", 0.15),
+                maybe_null(random.choice(["无", "出血", "血肿", "造影剂过敏", "血管痉挛"]), 0.50),
+                random.choice(["草稿", "已提交", "已审核"]),
+                reporter,
+                maybe_null(start_time + timedelta(hours=random.randint(1, 12)), 0.25),
+                datetime.now()
+            ))
+
+        self._batch_insert("intervention_reports",
+            ["report_id", "order_id", "patient_id", "visit_id", "procedure_name",
+             "access_route", "contrast_agent", "contrast_volume_ml", "procedure_start_time",
+             "procedure_end_time", "findings", "impression", "complications",
+             "report_status", "reporter_id", "report_time", "create_time"],
+            rows)
+        print(f"  [RIS] intervention_reports: {len(rows)} rows")
+
+    def generate_nuclear_medicine_reports(self, count: int = 3000):
+        """生成核医学报告（PET/ECT/SPECT）"""
+        rows = []
+        exam_types = ["PET", "ECT", "SPECT"]
+        radiopharmaceuticals = ["18F-FDG", "99mTc-MDP", "99mTc-MIBI", "131I", "68Ga-PSMA"]
+        doctor_ids = [s[0] for s in self.staff if s[10] == "医生"]
+
+        for i in range(count):
+            if self._should_link("ris_db") and self.patients:
+                patient = random.choice(self.patients)
+                patient_id = patient[0]
+            else:
+                patient_id = f"P{random.randint(1, 999999)}"
+
+            order_id = f"EO{random.randint(1, 25000)}"
+            exam_type = random.choice(exam_types)
+            injected_time = random_datetime("2023-01-01", "2024-12-31")
+            imaging_time = injected_time + timedelta(minutes=random.randint(30, 120))
+            reporter = random.choice(doctor_ids) if doctor_ids else None
+
+            rows.append((
+                f"NM{str(i+1).zfill(7)}", order_id, patient_id,
+                f"IV{random.randint(1, 8000)}",
+                exam_type,
+                maybe_null(random.choice(["全身", "头部", "胸部", "腹部", "骨骼"]), 0.10),
+                random.choice(radiopharmaceuticals),
+                round(random.uniform(100, 400), 2),
+                injected_time,
+                maybe_null(f"{random.uniform(1, 10):.1f}%", 0.30),
+                imaging_time,
+                maybe_null("显像剂分布均匀...", 0.15),
+                maybe_null("未见明显异常放射性浓聚灶", 0.15),
+                round(random.uniform(1.0, 15.0), 2) if exam_type == "PET" else None,
+                maybe_null(random.choice(["与既往对比无明显变化", "病灶缩小", "新发病灶"]), 0.30),
+                random.choice(["草稿", "已提交", "已审核"]),
+                reporter,
+                maybe_null(imaging_time + timedelta(hours=random.randint(1, 12)), 0.25),
+                datetime.now()
+            ))
+
+        self._batch_insert("nuclear_medicine_reports",
+            ["report_id", "order_id", "patient_id", "visit_id", "exam_type", "exam_part",
+             "radiopharmaceutical", "injected_dose_mbq", "injected_time", "uptake_rate",
+             "imaging_time", "findings", "impression", "suv_max", "comparison_result",
+             "report_status", "reporter_id", "report_time", "create_time"],
+            rows)
+        print(f"  [RIS] nuclear_medicine_reports: {len(rows)} rows")

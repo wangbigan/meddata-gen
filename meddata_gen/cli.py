@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import os
 import sys
 from typing import Optional, Tuple
 
@@ -117,22 +118,59 @@ def cmd_init(modules: Tuple[str, ...], dry_run: bool) -> None:
 )
 @click.option("--seed", type=int, default=None, help="随机种子，覆盖 config.RANDOM_SEED。")
 @click.option("--dry-run", is_flag=True, help="仅打印计划，不实际生成。")
-def cmd_generate(modules: Tuple[str, ...], scale: str, seed: Optional[int], dry_run: bool) -> None:
-    target_modules = _parse_modules(modules)
+@click.option(
+    "--mode", default="legacy", show_default=True,
+    type=click.Choice(["legacy", "event"]),
+    help="生成模式：legacy=传统按表填充，event=事件驱动患者旅程。",
+)
+@click.option(
+    "--output-format", default="postgres", show_default=True,
+    type=click.Choice(["postgres", "csv", "fhir"]),
+    help="事件模式下的输出格式（legacy 模式忽略此选项）。",
+)
+@click.option(
+    "--output-dir", default=None,
+    help="CSV/FHIR 输出目录（默认 output/csv 或 output/fhir）。",
+)
+def cmd_generate(
+    modules: Tuple[str, ...],
+    scale: str,
+    seed: Optional[int],
+    dry_run: bool,
+    mode: str,
+    output_format: str,
+    output_dir: Optional[str],
+) -> None:
     factor = _resolve_scale(scale)
 
-    click.echo(f"目标模块: {target_modules}")
+    click.echo(f"模式: {mode}")
+    if mode == "legacy":
+        target_modules = _parse_modules(modules)
+        click.echo(f"目标模块: {target_modules}")
     click.echo(f"规模档位: {scale} (×{factor})")
     if seed is not None:
         click.echo(f"随机种子: {seed}")
+    if mode == "event":
+        click.echo(f"输出格式: {output_format}")
+        if output_dir:
+            click.echo(f"输出目录: {output_dir}")
     if dry_run:
         click.secho("[DRY-RUN] 跳过实际生成", fg="yellow")
         return
 
     _check_connection(config.DB_CONFIG)
 
-    o = orchestrator.Orchestrator(config.DB_CONFIG, scale=factor, seed=seed)
-    o.run(target_modules)
+    if mode == "event":
+        orchestrator.run_event_driven(
+            config.DB_CONFIG,
+            scale=factor,
+            seed=seed,
+            output_format=output_format,
+            output_dir=output_dir,
+        )
+    else:
+        o = orchestrator.Orchestrator(config.DB_CONFIG, scale=factor, seed=seed)
+        o.run(_parse_modules(modules))
     click.secho("\n[OK] 生成完成", fg="green")
 
 
@@ -146,11 +184,43 @@ def cmd_generate(modules: Tuple[str, ...], scale: str, seed: Optional[int], dry_
 @click.option("--seed", type=int, default=None, help="随机种子。")
 @click.option("--skip-init", is_flag=True, help="跳过 init 阶段（数据库已存在时使用）。")
 @click.option("--skip-verify", is_flag=True, help="跳过 verify 阶段。")
+@click.option(
+    "--mode", default="legacy", show_default=True,
+    type=click.Choice(["legacy", "event"]),
+    help="生成模式：legacy=传统按表填充，event=事件驱动患者旅程。",
+)
+@click.option(
+    "--output-format", default="postgres", show_default=True,
+    type=click.Choice(["postgres", "csv", "fhir"]),
+    help="事件模式下的输出格式（legacy 模式忽略此选项）。",
+)
+@click.option(
+    "--output-dir", default=None,
+    help="CSV/FHIR 输出目录（默认 output/csv 或 output/fhir）。",
+)
 @click.pass_context
-def cmd_run_all(ctx: click.Context, scale: str, seed: Optional[int], skip_init: bool, skip_verify: bool) -> None:
+def cmd_run_all(
+    ctx: click.Context,
+    scale: str,
+    seed: Optional[int],
+    skip_init: bool,
+    skip_verify: bool,
+    mode: str,
+    output_format: str,
+    output_dir: Optional[str],
+) -> None:
     if not skip_init:
         ctx.invoke(cmd_init, modules=(), dry_run=False)
-    ctx.invoke(cmd_generate, modules=(), scale=scale, seed=seed, dry_run=False)
+    ctx.invoke(
+        cmd_generate,
+        modules=(),
+        scale=scale,
+        seed=seed,
+        dry_run=False,
+        mode=mode,
+        output_format=output_format,
+        output_dir=output_dir,
+    )
     if not skip_verify:
         ctx.invoke(cmd_verify)
 
@@ -211,6 +281,26 @@ def cmd_verify() -> None:
         click.echo(f"  {src_db}.{src_table}: {linked / total:.2%} ({linked}/{total})")
         cur.close()
         conn.close()
+
+
+# ----- assess -----
+
+@main.command("assess", help="生成数据质量评估报告（Markdown）。")
+@click.option(
+    "-o", "--output", default="reports/quality_report.md", show_default=True,
+    help="输出 markdown 路径。",
+)
+def cmd_assess(output: str) -> None:
+    from meddata_gen.quality.assessor import QualityAssessor
+
+    _check_connection(config.DB_CONFIG)
+    assessor = QualityAssessor(config.DB_CONFIG)
+    report = assessor.run()
+
+    os.makedirs(os.path.dirname(output) if os.path.dirname(output) else ".", exist_ok=True)
+    with open(output, "w", encoding="utf-8") as f:
+        f.write(report)
+    click.secho(f"[OK] 质量评估报告已生成: {output}", fg="green")
 
 
 # ----- reset -----

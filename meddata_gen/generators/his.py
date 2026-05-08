@@ -91,13 +91,18 @@ class HISMixin:
                 None, None,
                 random_date_between(datetime(2005, 1, 1), datetime(2024, 1, 1)),
                 f"Y{random.randint(100000, 999999)}",
+                maybe_null(random.choice(["内科", "外科", "妇产科", "儿科", "全科"]), 0.40) if job_type == "医生" else None,
+                maybe_null(random.choice(["本院", "分院A", "分院B"]), 0.50),
+                maybe_null(f"SIG{random.randint(1000, 9999)}", 0.60),
+                maybe_null(random.choice(["ROLE001", "ROLE002", "ROLE003", "ROLE004"]), 0.30),
                 "1", datetime.now(), None
             ))
 
         self._batch_insert("staff",
             ["staff_id", "staff_code", "staff_name", "gender", "birthday", "id_card",
              "phone", "email", "dept_id", "title", "job_type", "specialty", "education",
-             "entry_date", "license_no", "status", "create_time", "update_time"],
+             "entry_date", "license_no", "practice_scope", "practice_location",
+             "signature_image", "role_code", "status", "create_time", "update_time"],
             rows)
         self.staff = rows
         print(f"  [HIS] staff: {len(rows)} rows")
@@ -180,6 +185,12 @@ class HISMixin:
                 maybe_null("无", 0.35),
                 maybe_null("无特殊", 0.40),
                 maybe_null("无特殊", 0.40),
+                maybe_null(random.choice(["父亲", "母亲", "配偶", "子女", "兄弟", "姐妹"]), 0.30),
+                maybe_null(round(random.uniform(150.0, 190.0), 1), 0.25),
+                maybe_null(round(random.uniform(45.0, 100.0), 2), 0.25),
+                maybe_null(f"C{random.randint(100000000, 999999999)}", 0.20),
+                maybe_null(f"ST{random.randint(1, 200)}", 0.15),
+                maybe_null(random_date_between(datetime(2010, 1, 1), datetime(2024, 1, 1)), 0.20),
                 datetime.now(), None, "1"
             ))
 
@@ -188,7 +199,8 @@ class HISMixin:
              "id_card", "health_card_no", "insurance_type", "insurance_no", "nationality",
              "ethnicity", "blood_type", "marital_status", "occupation", "phone", "address",
              "emergency_contact", "emergency_phone", "allergy_history", "family_history",
-             "past_history", "register_time", "update_time", "status"],
+             "past_history", "contact_relation", "height", "weight", "card_no",
+             "register_user_id", "first_visit_date", "register_time", "update_time", "status"],
             rows)
         self.patients = rows
         print(f"  [HIS] patients: {len(rows)} rows")
@@ -254,6 +266,14 @@ class HISMixin:
                 insurance_pay,
                 round(total_cost - insurance_pay, 2),
                 status,
+                maybe_null(round(random.uniform(45.0, 100.0), 2), 0.30),
+                maybe_null(round(random.uniform(150.0, 190.0), 1), 0.30),
+                maybe_null("青霉素;头孢", 0.50),
+                maybe_null(generate_name(), 0.40),
+                maybe_null(generate_phone(), 0.45),
+                random.choice(["Y", "N"]),
+                random.randint(0, 5) if random.random() > 0.9 else 0,
+                random.choice(["Y", "N"]),
                 datetime.now(), None
             ))
 
@@ -263,7 +283,9 @@ class HISMixin:
              "attending_doctor_id", "resident_doctor_id", "chief_doctor_id", "discharge_time",
              "discharge_dept_id", "discharge_ward_id", "discharge_diagnosis", "discharge_status",
              "days", "total_cost", "pre_payment", "balance", "insurance_pay", "self_pay",
-             "status", "create_time", "update_time"],
+             "status", "admission_weight", "admission_height", "allergy_drugs",
+             "companion_name", "companion_phone", "surgery_flag", "rescue_count",
+             "critical_flag", "create_time", "update_time"],
             rows)
         self.inpatients = rows
         print(f"  [HIS] inpatient_visits: {len(rows)} rows")
@@ -393,29 +415,160 @@ class HISMixin:
     def generate_beds(self):
         """生成床位信息"""
         rows = []
+        clinical_depts = [d for d in self.departments if d.get("ward") == "Y"]
         bed_types = ["普通床", "监护床", "抢救床", "隔离床"]
-        ward_depts = [d for d in self.departments if d.get("ward") == "Y"]
-        bed_id = 0
-
-        for dept in ward_depts:
-            for room in range(1, random.randint(8, 25)):
-                for bed in range(1, 5):
-                    bed_id += 1
-                    rows.append((
-                        f"BD{str(bed_id).zfill(5)}",
-                        dept["id"],
-                        f"{room:02d}",
-                        f"{bed}",
-                        random.choice(bed_types),
-                        dept["id"],
-                        "空闲",
-                        None, None,
-                        round(random.uniform(30, 200), 2),
-                        datetime.now()
-                    ))
-
+        for dept in clinical_depts:
+            num_beds = random.randint(20, 80)
+            for i in range(1, num_beds + 1):
+                room_no = f"{random.randint(1, 20)}"
+                rows.append((
+                    f"BD{dept['id']}{str(i).zfill(3)}",
+                    f"WD{dept['id']}",
+                    room_no,
+                    f"{room_no}-{i}",
+                    random.choice(bed_types),
+                    dept["id"],
+                    random.choice(["空闲", "占用", "维修", "停用"]),
+                    None,
+                    None,
+                    round(random.uniform(30.0, 500.0), 2),
+                    datetime.now()
+                ))
         self._batch_insert("beds",
             ["bed_id", "ward_id", "room_no", "bed_no", "bed_type", "dept_id",
              "status", "patient_id", "visit_id", "price", "create_time"],
             rows)
         print(f"  [HIS] beds: {len(rows)} rows")
+
+    def generate_registrations(self, count: int = 30000):
+        """生成挂号记录"""
+        rows = []
+        doctor_ids = [s[0] for s in self.staff if s[10] == "医生"]
+        outpatient_depts = [d["id"] for d in self.departments if d.get("outpatient") == "Y"]
+
+        for i in range(count):
+            patient = random.choice(self.patients)
+            patient_id = patient[0]
+            reg_time = random_datetime("2023-01-01", "2024-12-31")
+
+            rows.append((
+                f"RG{str(i+1).zfill(7)}",
+                patient_id,
+                f"OV{random.randint(1, 20000)}" if random.random() > 0.3 else None,
+                reg_time,
+                random.choice(["现场", "预约", "急诊", "转诊"]),
+                random.choice(outpatient_depts) if outpatient_depts else None,
+                random.choice(doctor_ids) if doctor_ids else None,
+                random.choice(["普通", "专家", "特需", "急诊"]),
+                random.randint(1, 200),
+                random.choice(["候诊", "就诊中", "已就诊", "过号", "退号", "爽约"]),
+                datetime.now()
+            ))
+
+        self._batch_insert("registrations",
+            ["reg_id", "patient_id", "visit_id", "reg_time", "reg_type",
+             "reg_dept_id", "reg_doctor_id", "fee_type", "sequence_no",
+             "status", "create_time"],
+            rows)
+        print(f"  [HIS] registrations: {len(rows)} rows")
+
+    def generate_transfer_records(self, count: int = 2000):
+        """生成转科记录"""
+        rows = []
+        doctor_ids = [s[0] for s in self.staff if s[10] == "医生"]
+        clinical_depts = [d["id"] for d in self.departments if d.get("ward") == "Y"]
+
+        for i in range(count):
+            visit = random.choice(self.inpatients)
+            visit_id = visit[0]
+            patient_id = visit[1]
+            transfer_time = random_datetime("2023-01-01", "2024-12-31")
+
+            from_dept = random.choice(clinical_depts) if clinical_depts else None
+            to_dept = random.choice(clinical_depts) if clinical_depts else None
+
+            rows.append((
+                f"TR{str(i+1).zfill(7)}",
+                visit_id,
+                patient_id,
+                from_dept,
+                to_dept,
+                transfer_time,
+                maybe_null(random.choice(["病情需要", "专科治疗", "手术需要", "床位调整", "患者要求"]), 0.20),
+                maybe_null(f"{random.randint(1, 30)}床", 0.10),
+                random.choice(doctor_ids) if doctor_ids else None,
+                datetime.now()
+            ))
+
+        self._batch_insert("transfer_records",
+            ["transfer_id", "visit_id", "patient_id", "from_dept_id", "to_dept_id",
+             "transfer_time", "transfer_reason", "bed_no", "doctor_id", "create_time"],
+            rows)
+        print(f"  [HIS] transfer_records: {len(rows)} rows")
+
+    def generate_settlements(self, count: int = 15000):
+        """生成结算主表"""
+        rows = []
+        staff_ids = [s[0] for s in self.staff]
+
+        for i in range(count):
+            visit = random.choice(self.inpatients + self.outpatients)
+            visit_id = visit[0]
+            patient_id = visit[1]
+            settlement_time = random_datetime("2023-01-01", "2024-12-31")
+
+            total_amount = round(random.uniform(50, 150000), 2)
+            insurance_pay = round(total_amount * random.uniform(0.3, 0.8), 2)
+
+            rows.append((
+                f"ST{str(i+1).zfill(7)}",
+                visit_id,
+                patient_id,
+                random.choice(["出院结算", "中途结算", "门诊结算", "急诊结算"]),
+                settlement_time,
+                total_amount,
+                insurance_pay,
+                round(total_amount - insurance_pay, 2),
+                f"INV{random.randint(1000000, 9999999)}",
+                random.choice(["已结算", "已结算", "已结算", "已作废", "已冲正"]),
+                random.choice(staff_ids) if staff_ids else None,
+                datetime.now()
+            ))
+
+        self._batch_insert("settlements",
+            ["settlement_id", "visit_id", "patient_id", "settlement_type",
+             "settlement_time", "total_amount", "insurance_pay", "self_pay",
+             "invoice_no", "settlement_status", "cashier_id", "create_time"],
+            rows)
+        print(f"  [HIS] settlements: {len(rows)} rows")
+
+    def generate_prepayments(self, count: int = 50000):
+        """生成预交金记录"""
+        rows = []
+        staff_ids = [s[0] for s in self.staff]
+
+        for i in range(count):
+            visit = random.choice(self.inpatients)
+            visit_id = visit[0]
+            patient_id = visit[1]
+            prepay_time = random_datetime("2023-01-01", "2024-12-31")
+            amount = round(random.uniform(1000, 50000), 2)
+
+            rows.append((
+                f"PP{str(i+1).zfill(7)}",
+                visit_id,
+                patient_id,
+                prepay_time,
+                amount,
+                random.choice(["现金", "银行卡", "微信", "支付宝", "医保卡"]),
+                f"RC{random.randint(1000000, 9999999)}",
+                round(amount + random.uniform(-5000, 20000), 2),
+                random.choice(staff_ids) if staff_ids else None,
+                datetime.now()
+            ))
+
+        self._batch_insert("prepayments",
+            ["prepay_id", "visit_id", "patient_id", "prepay_time", "amount",
+             "pay_method", "receipt_no", "balance", "operator_id", "create_time"],
+            rows)
+        print(f"  [HIS] prepayments: {len(rows)} rows")

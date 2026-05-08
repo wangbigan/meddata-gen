@@ -167,7 +167,141 @@ COMMENT ON COLUMN ecg_analyses.audit_time IS '审核时间';
 COMMENT ON COLUMN ecg_analyses.report_status IS '报告状态：草稿/已提交/已审核';
 COMMENT ON COLUMN ecg_analyses.create_time IS '记录创建时间';
 
-CREATE INDEX idx_ecgexam_patient_id ON ecg_exams(patient_id);
-CREATE INDEX idx_ecgexam_exam_time ON ecg_exams(exam_time);
-CREATE INDEX idx_waveform_exam_id ON ecg_waveforms(exam_id);
-CREATE INDEX idx_analysis_exam_id ON ecg_analyses(exam_id);
+CREATE INDEX IF NOT EXISTS idx_ecgexam_patient_id ON ecg_exams(patient_id);
+CREATE INDEX IF NOT EXISTS idx_ecgexam_exam_time ON ecg_exams(exam_time);
+CREATE INDEX IF NOT EXISTS idx_waveform_exam_id ON ecg_waveforms(exam_id);
+CREATE INDEX IF NOT EXISTS idx_analysis_exam_id ON ecg_analyses(exam_id);
+
+-- ----- 批次3: 新增表 -----
+
+-- 动态心电图(Holter)记录
+CREATE TABLE IF NOT EXISTS holter_records (
+    holter_id VARCHAR(20) PRIMARY KEY,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    record_date DATE NOT NULL,
+    total_hours INTEGER,                -- 记录总时长
+    total_beats BIGINT,                 -- 总心搏数
+    avg_hr INTEGER,                     -- 平均心率
+    min_hr INTEGER,
+    max_hr INTEGER,
+    min_hr_time TIMESTAMP,
+    max_hr_time TIMESTAMP,
+    pauses_count INTEGER,               -- 停搏次数
+    longest_pause_ms INTEGER,           -- 最长停搏 ms
+    af_burden DECIMAL(5,2),             -- 房颤负荷 %
+    af_episodes INTEGER,                -- 房颤阵数
+    ve_count INTEGER,                   -- 室早次数
+    sv_count INTEGER,                   -- 室上早次数
+    vt_episodes INTEGER,                -- 室速阵数
+    svt_episodes INTEGER,               -- 室上速阵数
+    st_deviation_flag CHAR(1),          -- ST段改变 Y/N
+    report_status VARCHAR(20),
+    reporter_id VARCHAR(20),
+    report_time TIMESTAMP,
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE holter_records IS '动态心电图(Holter)记录：24小时心电监测汇总（纳龙/邦健 Holter 系统）';
+COMMENT ON COLUMN holter_records.holter_id IS 'Holter主键ID';
+COMMENT ON COLUMN holter_records.patient_id IS '患者ID';
+COMMENT ON COLUMN holter_records.visit_id IS '就诊ID';
+COMMENT ON COLUMN holter_records.record_date IS '记录日期';
+COMMENT ON COLUMN holter_records.total_hours IS '有效记录时长（小时）';
+COMMENT ON COLUMN holter_records.total_beats IS '总心搏数';
+COMMENT ON COLUMN holter_records.avg_hr IS '平均心率（bpm）';
+COMMENT ON COLUMN holter_records.min_hr IS '最慢心率（bpm）';
+COMMENT ON COLUMN holter_records.max_hr IS '最快心率（bpm）';
+COMMENT ON COLUMN holter_records.min_hr_time IS '最慢心率发生时间';
+COMMENT ON COLUMN holter_records.max_hr_time IS '最快心率发生时间';
+COMMENT ON COLUMN holter_records.pauses_count IS '停搏次数（>2s）';
+COMMENT ON COLUMN holter_records.longest_pause_ms IS '最长停搏（ms）';
+COMMENT ON COLUMN holter_records.af_burden IS '房颤负荷（%）';
+COMMENT ON COLUMN holter_records.af_episodes IS '房颤阵数';
+COMMENT ON COLUMN holter_records.ve_count IS '室性早搏次数';
+COMMENT ON COLUMN holter_records.sv_count IS '室上性早搏次数';
+COMMENT ON COLUMN holter_records.vt_episodes IS '室速阵数';
+COMMENT ON COLUMN holter_records.svt_episodes IS '室上速阵数';
+COMMENT ON COLUMN holter_records.st_deviation_flag IS '是否有ST段改变：Y/N';
+COMMENT ON COLUMN holter_records.report_status IS '报告状态';
+COMMENT ON COLUMN holter_records.reporter_id IS '报告医生ID';
+COMMENT ON COLUMN holter_records.report_time IS '报告时间';
+COMMENT ON COLUMN holter_records.create_time IS '记录创建时间';
+
+-- Holter 事件记录
+CREATE TABLE IF NOT EXISTS holter_events (
+    event_id VARCHAR(20) PRIMARY KEY,
+    holter_id VARCHAR(20) NOT NULL,
+    event_time TIMESTAMP,
+    event_type VARCHAR(50),             -- 室早/房早/室速/房颤/ST改变/停搏/起搏
+    duration_seconds INTEGER,
+    min_hr INTEGER,
+    max_hr INTEGER,
+    avg_hr INTEGER,
+    symptom TEXT,                       -- 患者症状
+    activity TEXT,                      -- 当时活动
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE holter_events IS 'Holter 事件记录：24小时监测期间标记的心律失常事件';
+COMMENT ON COLUMN holter_events.event_id IS '事件主键ID';
+COMMENT ON COLUMN holter_events.holter_id IS '关联Holter记录ID';
+COMMENT ON COLUMN holter_events.event_time IS '事件发生时间';
+COMMENT ON COLUMN holter_events.event_type IS '事件类型：室早/房早/室速/房颤/ST改变/停搏/起搏';
+COMMENT ON COLUMN holter_events.duration_seconds IS '持续时间（秒）';
+COMMENT ON COLUMN holter_events.min_hr IS '事件期间最慢心率';
+COMMENT ON COLUMN holter_events.max_hr IS '事件期间最快心率';
+COMMENT ON COLUMN holter_events.avg_hr IS '事件期间平均心率';
+COMMENT ON COLUMN holter_events.symptom IS '患者症状描述';
+COMMENT ON COLUMN holter_events.activity IS '当时活动状态';
+COMMENT ON COLUMN holter_events.create_time IS '记录创建时间';
+
+-- 运动平板记录
+CREATE TABLE IF NOT EXISTS stress_test_records (
+    test_id VARCHAR(20) PRIMARY KEY,
+    patient_id VARCHAR(20) NOT NULL,
+    visit_id VARCHAR(20),
+    protocol VARCHAR(30),               -- Bruce/Modified Bruce/Balke/Naughton
+    max_speed DECIMAL(4,1),             -- km/h
+    max_grade DECIMAL(4,1),             -- %
+    max_hr INTEGER,
+    target_hr INTEGER,                  -- 目标心率
+    max_bp VARCHAR(15),
+    test_duration INTEGER,              -- 测试时长 秒
+    max_mets DECIMAL(4,1),              -- 最大代谢当量
+    test_result VARCHAR(20),            -- 阳性/阴性/可疑/未完成
+    termination_reason TEXT,
+    st_deviation_max DECIMAL(5,2),      -- 最大ST段偏移 mV
+    arrhythmia TEXT,                    -- 诱发心律失常
+    chest_pain VARCHAR(20),             -- 胸痛分级
+    reporter_id VARCHAR(20),
+    report_time TIMESTAMP,
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE stress_test_records IS '运动平板记录：运动负荷心电图独立检查类型';
+COMMENT ON COLUMN stress_test_records.test_id IS '运动平板主键ID';
+COMMENT ON COLUMN stress_test_records.patient_id IS '患者ID';
+COMMENT ON COLUMN stress_test_records.visit_id IS '就诊ID';
+COMMENT ON COLUMN stress_test_records.protocol IS '运动方案：Bruce/Modified Bruce/Balke/Naughton';
+COMMENT ON COLUMN stress_test_records.max_speed IS '最大速度（km/h）';
+COMMENT ON COLUMN stress_test_records.max_grade IS '最大坡度（%）';
+COMMENT ON COLUMN stress_test_records.max_hr IS '最大心率（bpm）';
+COMMENT ON COLUMN stress_test_records.target_hr IS '目标心率（bpm）';
+COMMENT ON COLUMN stress_test_records.max_bp IS '最高血压';
+COMMENT ON COLUMN stress_test_records.test_duration IS '测试时长（秒）';
+COMMENT ON COLUMN stress_test_records.max_mets IS '最大代谢当量（METs）';
+COMMENT ON COLUMN stress_test_records.test_result IS '测试结果：阳性/阴性/可疑/未完成';
+COMMENT ON COLUMN stress_test_records.termination_reason IS '终止原因';
+COMMENT ON COLUMN stress_test_records.st_deviation_max IS '最大ST段偏移（mV）';
+COMMENT ON COLUMN stress_test_records.arrhythmia IS '诱发心律失常';
+COMMENT ON COLUMN stress_test_records.chest_pain IS '胸痛分级';
+COMMENT ON COLUMN stress_test_records.reporter_id IS '报告医生ID';
+COMMENT ON COLUMN stress_test_records.report_time IS '报告时间';
+COMMENT ON COLUMN stress_test_records.create_time IS '记录创建时间';
+
+-- 现有表补充字段
+ALTER TABLE ecg_exams ADD COLUMN IF NOT EXISTS lead_off_info VARCHAR(100);
+ALTER TABLE ecg_exams ADD COLUMN IF NOT EXISTS baseline_drift VARCHAR(20);
+ALTER TABLE ecg_exams ADD COLUMN IF NOT EXISTS exercise_stage VARCHAR(20);
+
+CREATE INDEX IF NOT EXISTS idx_holter_patient_id ON holter_records(patient_id);
+CREATE INDEX IF NOT EXISTS idx_holter_event_holter_id ON holter_events(holter_id);
+CREATE INDEX IF NOT EXISTS idx_stress_patient_id ON stress_test_records(patient_id);

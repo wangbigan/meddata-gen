@@ -17,6 +17,7 @@ from meddata_gen.generators.lis import LISMixin
 from meddata_gen.generators.ris import RISMixin
 from meddata_gen.generators.ecg import ECGMixin
 from meddata_gen.generators.icu import ICUMixin
+from meddata_gen.generators.event_driven import EventDrivenGenerator
 
 
 class DataGenerator(
@@ -32,5 +33,5 @@ class DataGenerator(
     """组合全部子系统能力的统一数据生成器。"""
 
 
-__all__ = ["DataGenerator", "BaseGenerator"]
+__all__ = ["DataGenerator", "BaseGenerator", "EventDrivenGenerator"]
 __version__ = "0.1.0"
