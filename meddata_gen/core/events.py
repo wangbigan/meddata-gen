@@ -67,8 +67,11 @@ class EventContext:
 
     # 旅程状态
     disease_profile: Optional[Any] = None
+    patient_health: Optional[Any] = None   # PatientHealthProfile
     generated_ids: Dict[str, str] = field(default_factory=dict)
     state: Dict[str, Any] = field(default_factory=dict)
+    visit_status: str = "visited"          # "visited" | "refunded" | "no_show" | "cancelled" | "absent"
+    no_show_reason: Optional[str] = None
 
     def record_id(self, key: str, value: str) -> None:
         """记录本次旅程生成的业务 ID（如 order_id -> lab_order_id）。"""

@@ -24,6 +24,10 @@ from meddata_gen.seed_data import (
     maybe_null,
     random_date_between,
 )
+from meddata_gen.clinical.patient_health import (
+    assign_health_profile,
+    PATIENT_HEALTH_MAP,
+)
 
 
 class HISMixin:
@@ -203,6 +207,12 @@ class HISMixin:
              "register_user_id", "first_visit_date", "register_time", "update_time", "status"],
             rows)
         self.patients = rows
+
+        # 绑定健康档案（规则引擎）
+        for patient in self.patients:
+            health_profile = assign_health_profile(patient)
+            PATIENT_HEALTH_MAP[patient[0]] = health_profile
+
         print(f"  [HIS] patients: {len(rows)} rows")
 
     def generate_inpatient_visits(self, count: int = 8000):

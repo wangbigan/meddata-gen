@@ -187,3 +187,24 @@ SCALE_PROFILES = {
 # from meddata_gen.quality.scenarios import PREDEFINED_SCENARIOS
 # QUALITY_SCENARIOS = PREDEFINED_SCENARIOS
 QUALITY_SCENARIOS = []  # 默认禁用，需显式启用
+
+
+# ----- 业务规则配置（规则引擎） -----
+
+BUSINESS_RULES = {
+    # 合理性阈值
+    "patient_disease_match_rate": 0.90,
+    "encounter_department_match_rate": 0.95,
+
+    # 混合绑定模型
+    "base_disease_rate": 0.80,      # 80% 看基础病
+    "new_disease_rate": 0.20,       # 20% 看新发疾病
+
+    # 就诊率
+    "outpatient_visit_rate": 0.92,
+    "inpatient_admission_rate": 0.95,
+
+    # 退号/取消率（在未就诊/未入院的人中）
+    "outpatient_refund_rate": 0.70,
+    "inpatient_cancel_rate": 0.60,
+}

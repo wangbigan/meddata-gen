@@ -301,11 +301,14 @@ def run_event_driven(
     seed: Optional[int] = None,
     output_format: str = "postgres",
     output_dir: Optional[str] = None,
+    enable_rules: bool = False,
 ) -> None:
     """使用事件驱动生成器一次性生成所有系统的数据。"""
     # 延迟导入避免循环依赖
     from meddata_gen.generators.event_driven import EventDrivenGenerator
     from meddata_gen.output import CSVWriter, FHIRBundleWriter, PostgresWriter
+    from meddata_gen.core.rule_engine import ClinicalRuleEngine, RuleEngineConfig
+    from meddata_gen import config
 
     # 根据输出格式创建 writer
     writer = None
@@ -318,7 +321,24 @@ def run_event_driven(
     else:
         raise ValueError(f"不支持的输出格式: {output_format}")
 
-    gen = EventDrivenGenerator(db_config, seed=seed, writer=writer)
+    # 规则引擎（可选）
+    rule_engine = None
+    if enable_rules:
+        rules = getattr(config, "BUSINESS_RULES", {})
+        engine_config = RuleEngineConfig(
+            patient_disease_match_rate=rules.get("patient_disease_match_rate", 0.90),
+            encounter_department_match_rate=rules.get("encounter_department_match_rate", 0.95),
+            base_disease_rate=rules.get("base_disease_rate", 0.80),
+            new_disease_rate=rules.get("new_disease_rate", 0.20),
+            outpatient_visit_rate=rules.get("outpatient_visit_rate", 0.92),
+            inpatient_admission_rate=rules.get("inpatient_admission_rate", 0.95),
+            outpatient_refund_rate=rules.get("outpatient_refund_rate", 0.70),
+            inpatient_cancel_rate=rules.get("inpatient_cancel_rate", 0.60),
+        )
+        rule_engine = ClinicalRuleEngine(config=engine_config)
+        print("[RULES] 临床规则引擎已启用")
+
+    gen = EventDrivenGenerator(db_config, seed=seed, writer=writer, rule_engine=rule_engine)
 
     # Phase 1: 基础字典数据（ departments / staff / drugs / patients / beds ）
     # 需要先连接到 his_db，因为 HISMixin 的方法使用 BaseGenerator._batch_insert

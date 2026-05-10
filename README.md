@@ -49,7 +49,7 @@ DB_CONFIG = {
 |------|------|------|
 | `meddata-gen init` | 创建数据库 + 初始化表结构 | `meddata-gen init --module his,emr` |
 | `meddata-gen generate` | 生成模拟数据 | `meddata-gen generate --scale small --seed 42` |
-| `meddata-gen run-all` | 一键 init + generate + verify | `meddata-gen run-all --scale 0.5` |
+| `meddata-gen run-all` | 一键 init + generate + verify | `meddata-gen run-all --scale 0.5 --enable-rules` |
 | `meddata-gen verify` | 验证数据量、关联率、缺失率 | `meddata-gen verify` |
 | `meddata-gen assess` | 生成数据质量评估报告 (Markdown) | `meddata-gen assess -o reports/q.md` |
 | `meddata-gen reset` | 删除全部模拟数据库（高危） | `meddata-gen reset --yes` |
@@ -103,8 +103,35 @@ meddata-gen generate --mode event --scale tiny --output-format csv --output-dir 
 meddata-gen generate --mode event --scale tiny --output-format fhir --output-dir output/fhir
 ```
 
+### 临床规则引擎（`--enable-rules`）
+
+启用规则引擎后，事件模式的数据生成将遵循临床逻辑约束，显著降低"男性看妇科"、"成年人去儿科"等不合理场景：
+
+```bash
+# 启用规则引擎
+meddata-gen generate --mode event --scale small --enable-rules
+
+# 配合 run-all 使用
+meddata-gen run-all --mode event --scale small --enable-rules
+```
+
+**规则引擎核心能力：**
+
+| 规则 | 默认值 | 说明 |
+|------|--------|------|
+| 患者-疾病画像绑定率 | 90% | 患者主病符合年龄/性别约束；10% 为异常数据 |
+| 基础病就诊率 | 80% | 每次就诊使用基础病；20% 为新发疾病 |
+| 科室匹配准确率 | 95% | 按疾病画像挂对应科室；5% 模拟挂错号 |
+| 门诊就诊率 | 92% | 8% 未就诊（70% 退号 + 30% 爽约） |
+| 住院入院率 | 95% | 5% 取消入院（60% 主动取消 + 40% 爽约） |
+
+**85+ 疾病画像覆盖：** 心血管、呼吸、消化、内分泌、神经、肾脏、风湿免疫、血液、普外、骨科、心胸、泌尿、神外、妇科、产科、儿科、肿瘤、眼科/耳鼻喉/口腔、急诊、皮肤、精神等 21 个科室类别。
+
+**全局配置：** 在 `config.py` 的 `BUSINESS_RULES` 中调整参数。
+
 **事件驱动特性：**
 - 疾病画像驱动：诊断决定检验异常模式、用药、手术概率、ICU 概率、住院天数
+- 临床规则引擎（可选）：患者画像与疾病绑定、就诊率与退号率、混合绑定模型
 - 时间因果链：申请时间 < 采集时间 < 结果时间 < 出院时间
 - 跨系统一致性：同一次就诊的 patient_id / visit_id 在所有子系统中保持一致
 
@@ -325,8 +352,17 @@ meddata_gen/
 │   │   ├── icu.py               # ICU 生成器 Mixin（9 个方法）
 │   │   └── event_driven.py      # EventDrivenGenerator
 │   ├── clinical/
-│   │   ├── disease_profiles.py  # 疾病画像定义
+│   │   ├── disease_profiles.py  # ~85 种疾病画像定义
+│   │   ├── patient_health.py    # 患者健康档案（疾病绑定）
 │   │   └── lab_generator.py     # 疾病感知检验值生成器
+│   ├── core/
+│   │   ├── base.py              # BaseGenerator（连接、缺陷注入工具）
+│   │   ├── orchestrator.py      # 多模块编排器（Legacy/Event 双模式）
+│   │   ├── rule_engine.py       # 临床规则引擎
+│   │   ├── events.py            # 事件模型（MedicalEvent / EventContext）
+│   │   ├── journey_builder.py   # 患者旅程构建器
+│   │   ├── materializer.py      # 事件物化层（事件 → 行数据 → 输出）
+│   │   └── handlers/            # 各系统事件处理器
 │   ├── quality/
 │   │   ├── scenarios.py         # 场景化缺陷定义
 │   │   ├── defect_engine.py     # 缺陷注入引擎
@@ -379,4 +415,22 @@ WHERE item_name = '白细胞计数'
       SELECT patient_id FROM his_db.public.inpatient_visits
       WHERE admission_diagnosis LIKE '%肺炎%'
   );
+
+-- 规则引擎：验证妇科患者性别（应为 ~95% 女性）
+SELECT p.gender, COUNT(*)
+FROM his_db.public.patients p
+JOIN his_db.public.outpatient_visits v ON p.patient_id = v.patient_id
+WHERE v.dept_id = 'DEPT019'
+GROUP BY p.gender;
+
+-- 规则引擎：验证就诊率（挂号中应有 ~8% 未就诊）
+SELECT status, COUNT(*)
+FROM his_db.public.registrations
+GROUP BY status;
+
+-- 规则引擎：验证跨系统一致性（关联率应为 100%）
+SELECT COUNT(*) FILTER (WHERE o.patient_id NOT IN (
+    SELECT patient_id FROM his_db.public.patients
+)) as unlinked
+FROM lis_db.public.lab_orders o;
 ```

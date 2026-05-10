@@ -125,15 +125,10 @@ def _handle_lab_result(
 
     result_time = event.timestamp
 
-    # 随机选择检验类别和项目数
-    category = random.choice(["routine", "biochem", "blood"])
-    items = LAB_ITEMS.get(category, [])
-    if not items:
+    # 选择检验类别和项目
+    category, selected = _select_lab_items(ctx.disease_profile)
+    if not selected:
         return None
-
-    # 每个申请生成 3-8 个结果项
-    n_results = random.randint(3, 8)
-    selected = random.choices(items, k=min(n_results, len(items)))
 
     rows = []
     counter = ctx.state.setdefault(f"lab_result_counter_{category}", [0])
@@ -251,6 +246,46 @@ def _handle_lab_result(
             results.append(("lis_db", "critical_values", cv_cols, [cv_row]))
 
     return results
+
+
+def _select_lab_items(disease_profile):
+    """根据疾病画像选择检验类别和项目。"""
+    if not disease_profile or not disease_profile.lab_abnormalities:
+        category = random.choice(["routine", "biochem", "blood"])
+        items = LAB_ITEMS.get(category, [])
+        n = random.randint(3, 8)
+        return category, random.choices(items, k=min(n, len(items)))
+
+    relevant_codes = set(disease_profile.lab_abnormalities.keys())
+
+    # 找出包含最多 relevant codes 的 category
+    best_cat = None
+    best_count = 0
+    for cat, items in LAB_ITEMS.items():
+        count = sum(1 for item in items if item[0] in relevant_codes)
+        if count > best_count:
+            best_count = count
+            best_cat = cat
+
+    if not best_cat or best_count == 0:
+        category = random.choice(["routine", "biochem", "blood"])
+        items = LAB_ITEMS.get(category, [])
+        n = random.randint(3, 8)
+        return category, random.choices(items, k=min(n, len(items)))
+
+    items = LAB_ITEMS[best_cat]
+    relevant_items = [item for item in items if item[0] in relevant_codes]
+    other_items = [item for item in items if item[0] not in relevant_codes]
+
+    n_results = random.randint(3, 8)
+    n_relevant = min(len(relevant_items), random.randint(2, min(5, n_results)))
+    n_other = min(len(other_items), n_results - n_relevant)
+
+    selected = random.sample(relevant_items, n_relevant)
+    if n_other > 0:
+        selected.extend(random.sample(other_items, n_other))
+
+    return best_cat, selected
 
 
 def _generate_result_value(ref_low, ref_high):

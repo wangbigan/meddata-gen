@@ -54,8 +54,9 @@ class JourneyBuilder:
         t = self.timeline.schedule_after(ctx.admission_time, 0.5, 6.0)
         events.append(self._event(ctx, "emr_admission_record", t, "emr"))
 
-        # 3. 首次检验申请 (LIS) — 95% 患者，2-12h
-        if random.random() < 0.95:
+        # 3. 首次检验申请 (LIS) — 概率从疾病画像读取，默认 95%
+        lab_prob = ctx.disease_profile.order_lab_prob if ctx.disease_profile else 0.95
+        if random.random() < lab_prob:
             t_order = self.timeline.schedule_after(ctx.admission_time, 2.0, 12.0)
             ev_lab = self._event(ctx, "order_lab", t_order, "lis", payload={"seq": 0})
             events.append(ev_lab)
@@ -70,8 +71,9 @@ class JourneyBuilder:
                 )
             )
 
-        # 5. 影像申请 (RIS) — 40% 患者
-        if random.random() < 0.40:
+        # 5. 影像申请 (RIS) — 概率从疾病画像读取，默认 40%
+        img_prob = ctx.disease_profile.order_imaging_prob if ctx.disease_profile else 0.40
+        if random.random() < img_prob:
             t_img = self.timeline.schedule_within(ctx.admission_time, ctx.discharge_time, 2.0)
             ev_img = self._event(ctx, "order_imaging", t_img, "ris")
             events.append(ev_img)
@@ -142,9 +144,9 @@ class JourneyBuilder:
                 icu_t += timedelta(hours=random.uniform(1, 4))
                 idx += 1
 
-        # 10. ECG 检查 — 心血管/ICU 患者 25%，其他 5%
-        is_cardiac = ctx.department_id and "心" in (ctx.primary_diagnosis or "")
-        if random.random() < (0.25 if is_cardiac else 0.05):
+        # 10. ECG 检查 — 概率从疾病画像读取，默认 5%
+        ecg_prob = ctx.disease_profile.ecg_prob if ctx.disease_profile else 0.05
+        if random.random() < ecg_prob:
             t_ecg = self.timeline.schedule_within(ctx.admission_time, ctx.discharge_time, 1.0)
             ev_ecg = self._event(ctx, "ecg_exam", t_ecg, "ecg")
             events.append(ev_ecg)
@@ -179,8 +181,9 @@ class JourneyBuilder:
         # 1. 门诊就诊
         events.append(self._event(ctx, "outpatient_visit", ctx.visit_time, "his"))
 
-        # 2. 检验申请 — 30% 门诊患者
-        if random.random() < 0.30:
+        # 2. 检验申请 — 门诊检验率 = 住院检验率 * 0.5，默认 30%
+        lab_prob = ctx.disease_profile.order_lab_prob * 0.5 if ctx.disease_profile else 0.30
+        if random.random() < lab_prob:
             t_order = self.timeline.schedule_after(ctx.visit_time, 0.5, 2.0)
             ev_lab = self._event(ctx, "order_lab", t_order, "lis", payload={"seq": 0})
             events.append(ev_lab)
@@ -194,8 +197,9 @@ class JourneyBuilder:
                 )
             )
 
-        # 3. 影像申请 — 20% 门诊患者
-        if random.random() < 0.20:
+        # 3. 影像申请 — 门诊影像率 = 住院影像率 * 0.5，默认 20%
+        img_prob = ctx.disease_profile.order_imaging_prob * 0.5 if ctx.disease_profile else 0.20
+        if random.random() < img_prob:
             t_img = self.timeline.schedule_after(ctx.visit_time, 0.5, 3.0)
             ev_img = self._event(ctx, "order_imaging", t_img, "ris")
             events.append(ev_img)
@@ -208,8 +212,9 @@ class JourneyBuilder:
                 )
             )
 
-        # 4. 开药 — 80% 门诊患者
-        if random.random() < 0.80:
+        # 4. 开药 — 概率从疾病画像读取，默认 80%
+        rx_prob = ctx.disease_profile.order_medication_prob if ctx.disease_profile else 0.80
+        if random.random() < rx_prob:
             t_rx = self.timeline.schedule_after(ctx.visit_time, 0.3, 1.5)
             events.append(self._event(ctx, "order_medication", t_rx, "his"))
 

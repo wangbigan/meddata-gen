@@ -35,6 +35,10 @@ def register_his_handlers(materializer) -> None:
 def _handle_admission(
     event: MedicalEvent, ctx: EventContext
 ) -> Optional[List[Tuple[str, str, List[str], List[tuple]]]]:
+    # 取消入院：不生成住院记录
+    if ctx.visit_status in ("cancelled", "absent"):
+        return None
+
     total_cost = random_cost()
     fee = compute_fee_breakdown(total_cost)
 
@@ -118,6 +122,41 @@ def _handle_admission(
 def _handle_outpatient_visit(
     event: MedicalEvent, ctx: EventContext
 ) -> Optional[List[Tuple[str, str, List[str], List[tuple]]]]:
+    # 退号/爽约：只生成挂号记录，不生成门诊就诊记录
+    if ctx.visit_status == "refunded":
+        reg_status = "退号"
+    elif ctx.visit_status == "no_show":
+        reg_status = "爽约"
+    else:
+        reg_status = random.choice(["已就诊"])
+
+    # 挂号记录（所有情况都生成）
+    reg_counter = ctx.state.setdefault("reg_counter", [0])
+    reg_id = next_id("RG", reg_counter)
+    reg_row = (
+        reg_id,
+        ctx.patient_id,
+        ctx.visit_id,
+        ctx.visit_time,
+        random.choice(["现场", "预约", "急诊", "转诊"]),
+        ctx.department_id,
+        ctx.attending_doctor_id,
+        random.choice(["普通", "专家", "特需", "急诊"]),
+        random.randint(1, 200),
+        reg_status,
+        datetime.now(),
+    )
+    reg_cols = [
+        "reg_id", "patient_id", "visit_id", "reg_time", "reg_type",
+        "reg_dept_id", "reg_doctor_id", "fee_type", "sequence_no", "status", "create_time",
+    ]
+    results = [("his_db", "registrations", reg_cols, [reg_row])]
+
+    # 非就诊状态：不生成 outpatient_visits
+    if ctx.visit_status in ("refunded", "no_show"):
+        return results
+
+    # 正常就诊：生成 outpatient_visits
     diagnosis = ctx.primary_diagnosis or random.choice(ICD10_DIAGNOSES)
     fee = round(random.uniform(20, 2000), 2)
 
@@ -144,32 +183,9 @@ def _handle_outpatient_visit(
         "visit_type", "chief_complaint", "present_illness", "diagnosis", "diagnosis_icd",
         "treatment", "fee_amount", "status", "create_time",
     ]
+    results.append(("his_db", "outpatient_visits", visit_cols, [visit_row]))
 
-    # 同时生成挂号记录
-    reg_counter = ctx.state.setdefault("reg_counter", [0])
-    reg_id = next_id("RG", reg_counter)
-    reg_row = (
-        reg_id,
-        ctx.patient_id,
-        ctx.visit_id,
-        ctx.visit_time,
-        random.choice(["现场", "预约", "急诊", "转诊"]),
-        ctx.department_id,
-        ctx.attending_doctor_id,
-        random.choice(["普通", "专家", "特需", "急诊"]),
-        random.randint(1, 200),
-        random.choice(["候诊", "就诊中", "已就诊", "过号", "退号", "爽约"]),
-        datetime.now(),
-    )
-    reg_cols = [
-        "reg_id", "patient_id", "visit_id", "reg_time", "reg_type",
-        "reg_dept_id", "reg_doctor_id", "fee_type", "sequence_no", "status", "create_time",
-    ]
-
-    return [
-        ("his_db", "outpatient_visits", visit_cols, [visit_row]),
-        ("his_db", "registrations", reg_cols, [reg_row]),
-    ]
+    return results
 
 
 # ------------------------------------------------------------------
@@ -261,13 +277,21 @@ def _handle_order_medication(
     )
 
     # 收费
+    item_name = f"药品项目{random.randint(1, 999)}"
+    if ctx.disease_profile and ctx.disease_profile.typical_medications:
+        # 过滤掉空列表的类别
+        valid_cats = {k: v for k, v in ctx.disease_profile.typical_medications.items() if v}
+        if valid_cats:
+            category = random.choice(list(valid_cats.keys()))
+            item_name = random.choice(valid_cats[category])
+
     fee_row = (
         fee_id,
         ctx.visit_id,
         ctx.patient_id,
         "药品费",
         f"DRUG{random.randint(1000, 99999)}",
-        f"药品项目{random.randint(1, 999)}",
+        item_name,
         maybe("0.5g*24片", 0.30),
         "盒",
         qty,

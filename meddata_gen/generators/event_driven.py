@@ -34,6 +34,8 @@ from meddata_gen.core.handlers import (
 from meddata_gen.generators.his import HISMixin
 from meddata_gen.seed_data import DEPARTMENTS, ICD10_DIAGNOSES
 from meddata_gen.clinical.disease_profiles import random_disease_profile, select_profile_for_icd
+from meddata_gen.clinical.patient_health import get_patient_health
+from meddata_gen.core.rule_engine import ClinicalRuleEngine
 from meddata_gen.quality.defect_engine import ScenarioDefectEngine
 from meddata_gen import config
 from meddata_gen.output.base import OutputWriter
@@ -51,10 +53,12 @@ class EventDrivenGenerator(BaseGenerator, HISMixin):
         db_config: dict,
         seed: Optional[int] = None,
         writer: Optional[OutputWriter] = None,
+        rule_engine: Optional[ClinicalRuleEngine] = None,
     ) -> None:
         super().__init__(db_config, seed=seed)
         self.timeline = TimelineEngine()
         self.journey_builder = JourneyBuilder()
+        self.rule_engine = rule_engine
 
         # 场景化缺陷引擎（默认从配置读取，空列表表示禁用）
         scenarios = getattr(config, "QUALITY_SCENARIOS", [])
@@ -92,6 +96,9 @@ class EventDrivenGenerator(BaseGenerator, HISMixin):
         # 住院
         for i in range(inpatient_count):
             ctx = self._create_inpatient_context(i)
+            if ctx.visit_status != "visited":
+                # 取消入院：不生成任何住院记录
+                continue
             events = self.journey_builder.build(ctx)
             self.materializer.materialize(events, ctx)
             if (i + 1) % 500 == 0:
@@ -100,6 +107,18 @@ class EventDrivenGenerator(BaseGenerator, HISMixin):
         # 门诊
         for i in range(outpatient_count):
             ctx = self._create_outpatient_context(i)
+            if ctx.visit_status != "visited":
+                # 退号/爽约：仅生成挂号记录（通过单个 outpatient_visit 事件，handler 会识别 visit_status）
+                from meddata_gen.core.events import MedicalEvent
+                no_show_event = MedicalEvent(
+                    event_type="outpatient_visit",
+                    timestamp=ctx.visit_time or datetime.now(),
+                    source_system="his",
+                    patient_id=ctx.patient_id,
+                    visit_id=ctx.visit_id,
+                )
+                self.materializer.materialize([no_show_event], ctx)
+                continue
             events = self.journey_builder.build(ctx)
             self.materializer.materialize(events, ctx)
             if (i + 1) % 2000 == 0:
@@ -117,31 +136,49 @@ class EventDrivenGenerator(BaseGenerator, HISMixin):
         """为单个住院患者创建就诊上下文。"""
         patient = random.choice(self.patients) if self.patients else self._mock_patient(index)
         doctor = self._pick_doctor()
+        patient_health = get_patient_health(patient[0])
+        age = self._patient_age(patient)
+        gender = patient[3] if len(patient) > 3 else "B"
 
-        # 随机选择疾病画像（30% 概率）或随机诊断
-        if random.random() < 0.30:
-            icd_code, profile = random_disease_profile()
+        # 就诊率检查
+        visit_status = "visited"
+        no_show_reason = None
+        if self.rule_engine:
+            did_visit, reason = self.rule_engine.check_visit_rate("inpatient")
+            if not did_visit:
+                visit_status = reason or "cancelled"
+                no_show_reason = reason
+
+        # 疾病选择（无论是否实际就诊，都使用规则引擎保证画像合理性）
+        if self.rule_engine and patient_health:
+            diagnosis_icd, profile = self.rule_engine.select_encounter_disease(
+                patient_health, patient_age=age, patient_gender=gender
+            )
             diagnosis_name = profile.name
-            diagnosis_icd = icd_code
+            dept = self.rule_engine.select_department(
+                profile, "inpatient", gender, age, self.departments
+            )
         else:
-            diagnosis = random.choice(ICD10_DIAGNOSES)
-            diagnosis_name = diagnosis[1]
-            diagnosis_icd = diagnosis[0]
-            profile = select_profile_for_icd(diagnosis_icd)
+            # 原有逻辑（向后兼容）
+            if random.random() < 0.30:
+                diagnosis_icd, profile = random_disease_profile()
+                diagnosis_name = profile.name
+            else:
+                diagnosis = random.choice(ICD10_DIAGNOSES)
+                diagnosis_name = diagnosis[1]
+                diagnosis_icd = diagnosis[0]
+                profile = select_profile_for_icd(diagnosis_icd)
 
-        # 科室：优先使用疾病画像，否则随机
-        if profile and profile.typical_departments:
-            dept = random.choice(profile.typical_departments)
-        else:
-            dept = self._pick_clinical_dept()
+            if profile and profile.primary_departments:
+                dept = random.choice(profile.primary_departments)
+            else:
+                dept = self._pick_clinical_dept()
 
         self._visit_counter[0] += 1
         visit_id = f"IV{str(self._visit_counter[0]).zfill(7)}"
 
-        # 入院时间：2023-01-01 ~ 2024-12-20（留出院时间空间）
         admission_time = self._random_admission_time()
 
-        # LOS：优先使用疾病画像分布
         if profile and profile.los_distribution:
             los_choices = [d for d, _ in profile.los_distribution]
             los_weights = [w for _, w in profile.los_distribution]
@@ -167,30 +204,54 @@ class EventDrivenGenerator(BaseGenerator, HISMixin):
             primary_diagnosis=diagnosis_name,
             primary_icd=diagnosis_icd,
             disease_profile=profile,
+            patient_health=patient_health,
             state=self._shared_state,
+            visit_status=visit_status,
+            no_show_reason=no_show_reason,
         )
 
     def _create_outpatient_context(self, index: int) -> EventContext:
         """为单个门诊患者创建就诊上下文。"""
         patient = random.choice(self.patients) if self.patients else self._mock_patient(index)
         doctor = self._pick_doctor()
+        patient_health = get_patient_health(patient[0])
+        age = self._patient_age(patient)
+        gender = patient[3] if len(patient) > 3 else "B"
 
-        # 门诊更倾向于常见病画像（糖尿病等）
-        if random.random() < 0.30:
-            icd_code, profile = random_disease_profile()
+        # 就诊率检查
+        visit_status = "visited"
+        no_show_reason = None
+        if self.rule_engine:
+            did_visit, reason = self.rule_engine.check_visit_rate("outpatient")
+            if not did_visit:
+                visit_status = reason or "no_show"
+                no_show_reason = reason
+
+        # 疾病选择（无论是否实际就诊，都使用规则引擎保证画像合理性）
+        if self.rule_engine and patient_health:
+            diagnosis_icd, profile = self.rule_engine.select_encounter_disease(
+                patient_health, patient_age=age, patient_gender=gender
+            )
             diagnosis_name = profile.name
-            diagnosis_icd = icd_code
+            dept = self.rule_engine.select_department(
+                profile, "outpatient", gender, age, self.departments
+            )
         else:
-            diagnosis = random.choice(ICD10_DIAGNOSES)
-            diagnosis_name = diagnosis[1]
-            diagnosis_icd = diagnosis[0]
-            profile = select_profile_for_icd(diagnosis_icd)
+            if random.random() < 0.30:
+                diagnosis_icd, profile = random_disease_profile()
+                diagnosis_name = profile.name
+            else:
+                diagnosis = random.choice(ICD10_DIAGNOSES)
+                diagnosis_name = diagnosis[1]
+                diagnosis_icd = diagnosis[0]
+                profile = select_profile_for_icd(diagnosis_icd)
 
-        # 科室
-        if profile and profile.typical_departments:
-            dept = random.choice(profile.typical_departments)
-        else:
-            dept = self._pick_outpatient_dept()
+            if profile and profile.outpatient_departments:
+                dept = random.choice(profile.outpatient_departments)
+            elif profile and profile.primary_departments:
+                dept = random.choice(profile.primary_departments)
+            else:
+                dept = self._pick_outpatient_dept()
 
         self._outpatient_counter[0] += 1
         visit_id = f"OV{str(self._outpatient_counter[0]).zfill(7)}"
@@ -213,7 +274,10 @@ class EventDrivenGenerator(BaseGenerator, HISMixin):
             primary_diagnosis=diagnosis_name,
             primary_icd=diagnosis_icd,
             disease_profile=profile,
+            patient_health=patient_health,
             state=self._shared_state,
+            visit_status=visit_status,
+            no_show_reason=no_show_reason,
         )
 
     # ------------------------------------------------------------------
@@ -257,3 +321,10 @@ class EventDrivenGenerator(BaseGenerator, HISMixin):
             "M",
             datetime(1980, 1, 1),
         )
+
+    def _patient_age(self, patient: tuple) -> int:
+        """计算患者年龄。"""
+        birthday = patient[4] if len(patient) > 4 else datetime(1980, 1, 1)
+        if isinstance(birthday, datetime):
+            birthday = birthday.date()
+        return (datetime.now().date() - birthday).days // 365

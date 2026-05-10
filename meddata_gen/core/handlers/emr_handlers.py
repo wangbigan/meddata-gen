@@ -108,11 +108,17 @@ def _handle_admission_record(
     dx_counter = ctx.state.setdefault("emr_dx_counter", [0])
     dx_rows = []
     n_dx = random.randint(1, 3)
+    comorbidities = ctx.patient_health.comorbidities if ctx.patient_health else []
     for i in range(n_dx):
         dx_id = next_id("ED", dx_counter)
         if i == 0:
             dx_name = diagnosis_name
             dx_code = diagnosis_code
+        elif i - 1 < len(comorbidities):
+            # 使用并发症作为次要诊断
+            comorbidity = comorbidities[i - 1]
+            dx_name = comorbidity[1].name
+            dx_code = comorbidity[0]
         else:
             other = random.choice(ICD10_DIAGNOSES)
             dx_name = other[1]
@@ -337,16 +343,20 @@ def _handle_surgery_record(
     duration = random.randint(30, 360)
     end_time = start_time + timedelta(minutes=duration)
 
-    surgery_names = [
-        ("阑尾切除术", "47.0"), ("胆囊切除术", "51.2"), ("胃大部切除术", "43.7"),
-        ("肠切除术", "45.7"), ("脾切除术", "41.5"), ("肝部分切除术", "50.2"),
-        ("甲状腺切除术", "06.4"), ("乳腺切除术", "85.4"), ("剖宫产术", "74.1"),
-        ("子宫切除术", "68.4"), ("髋关节置换术", "81.5"), ("膝关节置换术", "81.5"),
-        ("脊柱融合术", "81.0"), ("开颅术", "01.2"), ("冠状动脉搭桥术", "36.1"),
-        ("心脏瓣膜置换术", "35.2"), ("肺叶切除术", "32.4"), ("肾切除术", "55.5"),
-        ("前列腺切除术", "60.5"), ("骨折内固定术", "79.3"),
-    ]
-    surgery = random.choice(surgery_names)
+    if ctx.disease_profile and ctx.disease_profile.typical_surgeries:
+        surgery_name = random.choice(ctx.disease_profile.typical_surgeries)
+        surgery = (surgery_name, "99.9")
+    else:
+        surgery_names = [
+            ("阑尾切除术", "47.0"), ("胆囊切除术", "51.2"), ("胃大部切除术", "43.7"),
+            ("肠切除术", "45.7"), ("脾切除术", "41.5"), ("肝部分切除术", "50.2"),
+            ("甲状腺切除术", "06.4"), ("乳腺切除术", "85.4"), ("剖宫产术", "74.1"),
+            ("子宫切除术", "68.4"), ("髋关节置换术", "81.5"), ("膝关节置换术", "81.5"),
+            ("脊柱融合术", "81.0"), ("开颅术", "01.2"), ("冠状动脉搭桥术", "36.1"),
+            ("心脏瓣膜置换术", "35.2"), ("肺叶切除术", "32.4"), ("肾切除术", "55.5"),
+            ("前列腺切除术", "60.5"), ("骨折内固定术", "79.3"),
+        ]
+        surgery = random.choice(surgery_names)
 
     # emr_documents
     doc_row = (

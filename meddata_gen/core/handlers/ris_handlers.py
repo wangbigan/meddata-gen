@@ -15,6 +15,20 @@ def register_ris_handlers(materializer) -> None:
     materializer.register("ris", "imaging_report", _handle_imaging_report)
 
 
+def _infer_modality(exam_name: str) -> str:
+    """根据检查名称推断影像模态。"""
+    name = exam_name.lower()
+    if "ct" in name or "ct" in exam_name:
+        return "ct"
+    if "mri" in name or "核磁" in exam_name or "磁共振" in exam_name:
+        return "mri"
+    if "超声" in exam_name or "b超" in name or "彩超" in exam_name:
+        return "ultrasound"
+    if "x线" in exam_name or "x光" in exam_name or "dr" in name:
+        return "xray"
+    return random.choice(list(RIS_EXAM_TYPES.keys()))
+
+
 # ------------------------------------------------------------------
 # 影像申请
 # ------------------------------------------------------------------
@@ -27,8 +41,12 @@ def _handle_order_imaging(
     order_time = event.timestamp
 
     # 选择影像类型和具体项目
-    modality = random.choice(list(RIS_EXAM_TYPES.keys()))
-    exam_item = random.choice(RIS_EXAM_TYPES[modality])
+    if ctx.disease_profile and ctx.disease_profile.typical_imaging:
+        exam_item = random.choice(ctx.disease_profile.typical_imaging)
+        modality = _infer_modality(exam_item)
+    else:
+        modality = random.choice(list(RIS_EXAM_TYPES.keys()))
+        exam_item = random.choice(RIS_EXAM_TYPES[modality])
 
     diagnosis = ctx.primary_diagnosis or random.choice(ICD10_DIAGNOSES)
     diagnosis_name = diagnosis[1] if isinstance(diagnosis, tuple) else diagnosis

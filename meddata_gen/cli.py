@@ -132,6 +132,10 @@ def cmd_init(modules: Tuple[str, ...], dry_run: bool) -> None:
     "--output-dir", default=None,
     help="CSV/FHIR 输出目录（默认 output/csv 或 output/fhir）。",
 )
+@click.option(
+    "--enable-rules", is_flag=True,
+    help="启用临床规则引擎（仅事件模式有效）。",
+)
 def cmd_generate(
     modules: Tuple[str, ...],
     scale: str,
@@ -140,6 +144,7 @@ def cmd_generate(
     mode: str,
     output_format: str,
     output_dir: Optional[str],
+    enable_rules: bool,
 ) -> None:
     factor = _resolve_scale(scale)
 
@@ -167,6 +172,7 @@ def cmd_generate(
             seed=seed,
             output_format=output_format,
             output_dir=output_dir,
+            enable_rules=enable_rules,
         )
     else:
         o = orchestrator.Orchestrator(config.DB_CONFIG, scale=factor, seed=seed)
@@ -198,6 +204,10 @@ def cmd_generate(
     "--output-dir", default=None,
     help="CSV/FHIR 输出目录（默认 output/csv 或 output/fhir）。",
 )
+@click.option(
+    "--enable-rules", is_flag=True,
+    help="启用临床规则引擎（仅事件模式有效）。",
+)
 @click.pass_context
 def cmd_run_all(
     ctx: click.Context,
@@ -208,6 +218,7 @@ def cmd_run_all(
     mode: str,
     output_format: str,
     output_dir: Optional[str],
+    enable_rules: bool,
 ) -> None:
     if not skip_init:
         ctx.invoke(cmd_init, modules=(), dry_run=False)
@@ -220,6 +231,7 @@ def cmd_run_all(
         mode=mode,
         output_format=output_format,
         output_dir=output_dir,
+        enable_rules=enable_rules,
     )
     if not skip_verify:
         ctx.invoke(cmd_verify)
