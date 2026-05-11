@@ -117,6 +117,7 @@ meddata-gen generate [选项]
 | `--mode` | choice | `legacy` | `legacy` / `event` |
 | `--output-format` | choice | `postgres` | `postgres` / `csv` / `fhir`（event 模式有效） |
 | `--output-dir` | string | None | CSV/FHIR 输出目录 |
+| `--enable-rules` | flag | False | 启用临床规则引擎（仅 event 模式有效） |
 
 ### 规模档位
 
@@ -146,6 +147,9 @@ meddata-gen generate --mode event -s tiny --output-format csv --output-dir outpu
 
 # Event 模式，FHIR R4 Bundle 输出
 meddata-gen generate --mode event -s tiny --output-format fhir --output-dir output/fhir
+
+# Event 模式 + 规则引擎（推荐）
+meddata-gen generate --mode event -s small --seed 42 --enable-rules
 ```
 
 ### 实现逻辑
@@ -161,6 +165,11 @@ meddata-gen generate --mode event -s tiny --output-format fhir --output-dir outp
 
    mode == "event":
      - 调用 orchestrator.run_event_driven()
+     - 如果指定 --enable-rules:
+         - 创建 ClinicalRuleEngine 实例
+         - 患者生成时绑定 DiseaseProfile（90% 匹配年龄/性别）
+         - 就诊时按疾病画像选择科室（95% 准确率）
+         - 应用就诊率过滤（8% 门诊未就诊，5% 住院取消）
      - 内部创建 EventDrivenGenerator
      - Phase 1: 生成基础字典（departments/staff/drugs/patients/beds）
      - Phase 2: 为每个患者构建就诊旅程（JourneyBuilder）
@@ -185,6 +194,9 @@ meddata-gen generate --mode event -s tiny --output-format fhir --output-dir outp
 | 时间一致性 | 较弱（随机时间戳） | 强（申请→采集→结果→出院因果链） |
 | 跨系统关联 | 通过 _should_link 概率关联 | 同一 visit_id 天然一致 |
 | 疾病画像 | 不适用 | 驱动检验异常、用药、手术概率 |
+| 临床规则引擎 | 不适用 | `--enable-rules` 可选开启 |
+| 患者-疾病绑定 | 随机分配 | 90% 匹配年龄/性别，10% 异常 |
+| 就诊率模拟 | 不适用 | 8% 门诊未就诊，5% 住院取消 |
 | 场景缺陷 | 均匀撒盐 | 按业务根因集中注入 |
 | 输出格式 | 仅 PostgreSQL | PostgreSQL / CSV / FHIR |
 | 适用场景 | 快速生成大量数据 | 模拟真实业务流程 |
@@ -210,6 +222,7 @@ meddata-gen run-all [选项]
 | `--mode` | choice | `legacy` | 生成模式 |
 | `--output-format` | choice | `postgres` | 事件模式输出格式 |
 | `--output-dir` | string | None | CSV/FHIR 输出目录 |
+| `--enable-rules` | flag | False | 启用临床规则引擎（仅 event 模式有效） |
 
 ### 用法示例
 
@@ -222,6 +235,9 @@ meddata-gen run-all --skip-init --mode event -s small
 
 # CSV 输出
 meddata-gen run-all --mode event --output-format csv --output-dir ./data
+
+# 启用规则引擎（推荐用于事件模式）
+meddata-gen run-all --mode event -s small --enable-rules
 ```
 
 ### 实现逻辑
@@ -234,6 +250,7 @@ meddata-gen run-all --mode event --output-format csv --output-dir ./data
 
 2. ctx.invoke(cmd_generate, ...)
    - 将所有参数透传给 generate
+   - 包含 `--enable-rules` 时，事件模式会创建 ClinicalRuleEngine
 
 3. 如果未指定 --skip-verify:
    - ctx.invoke(cmd_verify)
@@ -467,15 +484,21 @@ meddata-gen generate -s tiny --seed 42
 meddata-gen verify
 ```
 
-### 工作流 2: 事件驱动 + 质量评估
+### 工作流 2: 事件驱动 + 规则引擎 + 质量评估
 
 ```bash
-# 1. 一键执行
-meddata-gen run-all --mode event -s small --seed 42
+# 1. 一键执行（推荐：启用规则引擎）
+meddata-gen run-all --mode event -s small --seed 42 --enable-rules
 
 # 2. 生成质量报告
 meddata-gen assess -o reports/quality.md
 ```
+
+启用 `--enable-rules` 后：
+- 患者会被分配与其年龄/性别匹配的基础疾病（90%）
+- 科室选择按疾病画像自动匹配（95%）
+- 挂号记录中会出现 ~8% 的退号/爽约
+- 所有跨系统数据使用同一 patient_id / visit_id
 
 ### 工作流 3: CSV 输出（无需 PostgreSQL）
 
