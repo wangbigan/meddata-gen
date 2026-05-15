@@ -546,3 +546,61 @@ COMMENT ON COLUMN qc_internal.create_time IS '记录创建时间';
 CREATE INDEX IF NOT EXISTS idx_immuno_patient_id ON immunoassay_results(patient_id);
 CREATE INDEX IF NOT EXISTS idx_molecular_patient_id ON molecular_results(patient_id);
 CREATE INDEX IF NOT EXISTS idx_qc_run_date ON qc_internal(run_date);
+
+-- ============================================================
+-- 字典表 (Dictionary Tables)
+-- 通过 meddata-gen dict-template / dict-import 命令由用户填写后导入
+-- ============================================================
+
+-- 检验项目字典
+CREATE TABLE IF NOT EXISTS lab_items_dict (
+    item_code     VARCHAR(20) PRIMARY KEY,
+    item_name     VARCHAR(100) NOT NULL,
+    item_category VARCHAR(20) NOT NULL,
+    loinc_code    VARCHAR(20),
+    unit          VARCHAR(20),
+    ref_low       NUMERIC(12,4),
+    ref_high      NUMERIC(12,4),
+    specimen_type VARCHAR(20),
+    method        VARCHAR(50),
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE lab_items_dict IS '检验项目字典:检验项目主数据(含 LOINC)';
+COMMENT ON COLUMN lab_items_dict.item_code IS '检验项目编码,主键';
+COMMENT ON COLUMN lab_items_dict.item_name IS '项目中文名';
+COMMENT ON COLUMN lab_items_dict.item_category IS '类别:routine/biochem/blood/immuno/molecular/micro';
+COMMENT ON COLUMN lab_items_dict.loinc_code IS 'LOINC 标准编码';
+COMMENT ON COLUMN lab_items_dict.unit IS '结果单位';
+COMMENT ON COLUMN lab_items_dict.ref_low IS '参考下限';
+COMMENT ON COLUMN lab_items_dict.ref_high IS '参考上限';
+COMMENT ON COLUMN lab_items_dict.specimen_type IS '标本类型:blood/urine/stool/csf/sputum/other';
+COMMENT ON COLUMN lab_items_dict.method IS '检测方法';
+COMMENT ON COLUMN lab_items_dict.created_at IS '导入时间';
+
+-- 微生物字典
+CREATE TABLE IF NOT EXISTS organism_dict (
+    organism_code VARCHAR(20) PRIMARY KEY,
+    organism_name VARCHAR(100) NOT NULL,
+    organism_type VARCHAR(20),
+    gram_stain    VARCHAR(10),
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE organism_dict IS '微生物字典:菌株主数据';
+COMMENT ON COLUMN organism_dict.organism_code IS '菌株编码,主键';
+COMMENT ON COLUMN organism_dict.organism_name IS '菌株中文名';
+COMMENT ON COLUMN organism_dict.organism_type IS '菌种类型:bacteria/fungus/virus/parasite';
+COMMENT ON COLUMN organism_dict.gram_stain IS '革兰染色:positive/negative/NA';
+COMMENT ON COLUMN organism_dict.created_at IS '导入时间';
+
+-- 抗生素字典
+CREATE TABLE IF NOT EXISTS antibiotic_dict (
+    antibiotic_code VARCHAR(20) PRIMARY KEY,
+    antibiotic_name VARCHAR(100) NOT NULL,
+    drug_class      VARCHAR(50),
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE antibiotic_dict IS '抗生素字典:供 antibiotic_sensitivity 药敏引用';
+COMMENT ON COLUMN antibiotic_dict.antibiotic_code IS '抗生素编码,主键';
+COMMENT ON COLUMN antibiotic_dict.antibiotic_name IS '抗生素中文名';
+COMMENT ON COLUMN antibiotic_dict.drug_class IS '药物分类:β内酰胺/氨基糖苷/喹诺酮 等';
+COMMENT ON COLUMN antibiotic_dict.created_at IS '导入时间';

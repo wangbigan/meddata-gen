@@ -208,6 +208,7 @@ class EventDrivenGenerator(BaseGenerator, HISMixin):
             state=self._shared_state,
             visit_status=visit_status,
             no_show_reason=no_show_reason,
+            dict_cache=self._dict_cache,
         )
 
     def _create_outpatient_context(self, index: int) -> EventContext:
@@ -278,6 +279,7 @@ class EventDrivenGenerator(BaseGenerator, HISMixin):
             state=self._shared_state,
             visit_status=visit_status,
             no_show_reason=no_show_reason,
+            dict_cache=self._dict_cache,
         )
 
     # ------------------------------------------------------------------

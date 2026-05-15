@@ -33,16 +33,19 @@
 ## 快速开始
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"
 
-# 一键创建数据库 + 生成数据 + 验证
-meddata-gen run-all
-
-# 或分步执行
+# 一键创建数据库 + 加载内置字典 + 生成数据 + 验证
 meddata-gen init
-meddata-gen generate
+meddata-gen dict-import --use-builtin
+meddata-gen generate --scale small
 meddata-gen verify
+
+# 或一键执行全部(自动加载内置字典需手动先执行 dict-import)
+meddata-gen run-all --scale small
 ```
+
+> **注意**: `init` 初始化后会提示先导入字典表。可通过 `dict-import --use-builtin` 快速加载内置示例字典,或先用 `dict-template` 导出 Excel 模板自行填写后再导入。
 
 ## 环境要求
 
@@ -72,6 +75,8 @@ DB_CONFIG = {
 | 命令 | 说明 | 示例 |
 |------|------|------|
 | `meddata-gen init` | 创建数据库 + 初始化表结构 | `meddata-gen init --module his,emr` |
+| `meddata-gen dict-template` | 导出字典填写模板 (Excel) | `meddata-gen dict-template -o dict.xlsx` |
+| `meddata-gen dict-import` | 导入字典数据或加载内置示例 | `meddata-gen dict-import -f dict.xlsx` / `--use-builtin` |
 | `meddata-gen generate` | 生成模拟数据 | `meddata-gen generate --scale small --seed 42` |
 | `meddata-gen run-all` | 一键 init + generate + verify | `meddata-gen run-all --scale 0.5 --enable-rules` |
 | `meddata-gen verify` | 验证数据量、关联率、缺失率 | `meddata-gen verify` |
@@ -101,6 +106,60 @@ DB_CONFIG = {
 - `icu` — ICU 监护系统
 
 非 HIS 模块会自动复用 HIS 生成的 patients/staff/departments 等核心数据，确保跨库关联率真实。
+
+## 字典数据管理
+
+项目包含 8 张字典表，分布在 HIS/LIS/RIS 三个数据库中，用于为主业务表提供可校验的主数据（ICD-10 诊断、手术编码、检验项目、检查项目等）。`init` 完成后字典表为空，必须先导入数据才能进行真实的模拟数据生成。
+
+### 方案 A: 使用内置示例字典（推荐快速体验）
+
+```bash
+meddata-gen dict-import --use-builtin
+```
+
+一键写入全部 8 张字典表，数据来源于项目 `seed_data.py` 中的常量（ICD-10 诊断 ~120 条、检验项目 ~70 条、微生物 ~30 条、抗生素 ~42 条、影像检查 ~60 条，以及硬编码的手术/医嘱/收费项目）。
+
+### 方案 B: 自定义字典（推荐生产环境）
+
+```bash
+# 1. 导出 Excel 模板
+meddata-gen dict-template -o dict_template.xlsx
+
+# 2. 用 Excel 打开模板，按 sheet 填写或修改
+#    - 必填列标红带 *，下拉列可选值已预置
+#    - 可只填写需要的 sheet，未填写的导入时自动跳过
+
+# 3. 导入（dry-run 先校验）
+meddata-gen dict-import -f dict_template.xlsx --dry-run
+meddata-gen dict-import -f dict_template.xlsx
+
+# 4. 仅导入 LIS 子系统
+meddata-gen dict-import -f dict_template.xlsx --system lis
+
+# 5. 生成导入报告
+meddata-gen dict-import -f dict_template.xlsx --report reports/dict_import.md
+```
+
+### 导入模式
+
+| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| `upsert` (默认) | 主键冲突时更新，无冲突时插入 | 日常增量更新 |
+| `replace` | 先 TRUNCATE 再全量插入 | 需要完全重置字典 |
+| `append` | 仅插入，主键冲突时报错 | 严格追加新数据 |
+
+### 字典表清单
+
+| 字典表 | 数据库 | 说明 |
+|--------|--------|------|
+| `diagnosis_dict` | his_db | ICD-10 诊断编码 |
+| `surgery_dict` | his_db | ICD-9-CM3 手术编码 |
+| `order_items_dict` | his_db | 医嘱项目主数据 |
+| `charge_items_dict` | his_db | 收费项目主数据 |
+| `lab_items_dict` | lis_db | 检验项目（含 LOINC） |
+| `organism_dict` | lis_db | 微生物菌株 |
+| `antibiotic_dict` | lis_db | 抗生素 |
+| `exam_items_dict` | ris_db | RIS 检查项目 |
 
 ## 双模式数据生成
 

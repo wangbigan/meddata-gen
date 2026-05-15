@@ -73,6 +73,9 @@ class EventContext:
     visit_status: str = "visited"          # "visited" | "refunded" | "no_show" | "cancelled" | "absent"
     no_show_reason: Optional[str] = None
 
+    # 字典缓存（由 EventDrivenGenerator 传入，供 handlers 抽样）
+    dict_cache: Dict[str, list] = field(default_factory=dict)
+
     def record_id(self, key: str, value: str) -> None:
         """记录本次旅程生成的业务 ID（如 order_id -> lab_order_id）。"""
         self.generated_ids[key] = value

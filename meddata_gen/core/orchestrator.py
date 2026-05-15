@@ -283,8 +283,8 @@ class Orchestrator:
             try:
                 if module == "his":
                     self.his_state = gen
-                    # 不要 close，他后面还要被复用为 his_state
-                    # 但 his_state 仅持有 self.patients / staff / ... 的引用，连接可关闭
+                    # HIS 完成后加载字典缓存（供后续模块抽样）
+                    gen._load_dict_cache()
             finally:
                 if module != "his":
                     gen.close()
@@ -352,6 +352,9 @@ def run_event_driven(
     gen.generate_patients(_scaled_counts("his_db", scale).get("patients", 5000))
     gen.generate_beds()
     gen.close()
+
+    # 加载字典缓存到内存（供 Phase 2 handlers 抽样）
+    gen._load_dict_cache()
 
     # Phase 2: 患者旅程（跨系统事件驱动）
     # Materializer 使用自己的 writer（PostgresWriter/CSVWriter/FHIRBundleWriter），

@@ -146,11 +146,34 @@ Handlers return row data as:
 | `meddata_gen/core/materializer.py` | Event dispatch, buffering, defect application, flush |
 | `meddata_gen/core/handlers/*.py` | Per-system event handlers (return rows matching schema) |
 | `meddata_gen/generators/event_driven.py` | EventDrivenGenerator (Phase 1 dicts + Phase 2 journeys) |
-| `meddata_gen/cli.py` | Click CLI (init, generate, run-all, verify, assess, reset, docs) |
+| `meddata_gen/cli.py` | Click CLI (init, generate, run-all, verify, assess, reset, docs, dict-template, dict-import) |
+| `meddata_gen/dict_io/` | 字典导入/导出模块 (schemas, template_builder, importer, validators, builtin_loader) |
 | `meddata_gen/generators/*.py` | Per-subsystem Mixin generators (legacy mode only) |
+
+## Dictionary Tables (字典表)
+
+8 张字典表分布在 3 个数据库中,用于为主业务表提供可校验的主数据:
+
+| 表名 | 数据库 | 说明 | 数据来源 |
+|------|--------|------|----------|
+| `diagnosis_dict` | his_db | ICD-10 诊断编码 | 内置(seed_data.ICD10_DIAGNOSES) |
+| `surgery_dict` | his_db | ICD-9-CM3 手术编码 | 内置(硬编码 ~60 条) |
+| `order_items_dict` | his_db | 医嘱项目主数据 | 内置(硬编码 ~40 条) |
+| `charge_items_dict` | his_db | 收费项目主数据 | 内置(硬编码 ~45 条) |
+| `lab_items_dict` | lis_db | 检验项目(含 LOINC) | 内置(seed_data.LAB_ITEMS) |
+| `organism_dict` | lis_db | 微生物菌株 | 内置(seed_data.MICRO_ORGANISMS) |
+| `antibiotic_dict` | lis_db | 抗生素 | 内置(seed_data.ANTIBIOTICS) |
+| `exam_items_dict` | ris_db | RIS 检查项目 | 内置(seed_data.RIS_EXAM_TYPES) |
+
+**导入方式:**
+1. **自定义导入**: `dict-template` 导出 Excel → 用户填写 → `dict-import -f file.xlsx`
+2. **内置示例**: `dict-import --use-builtin` (一键写入全部 8 张表)
+
+`init` 完成后会提示先导入字典;`generate` 启动前会检查关键字典表是否为空并询问是否继续。
 
 ## Notes
 
 - The project requires a running PostgreSQL instance. There is no Docker setup or in-memory fallback.
 - When adding a new subsystem, add its schema SQL to `meddata_gen/schema/`, its Mixin to `generators/`, register the pipeline in `orchestrator.MODULE_PIPELINES`, and update `MODULE_DBS` and `SCHEMA_FILES`.
 - When adding event-driven support for a new subsystem, add handlers to `core/handlers/`, register them in `handlers/__init__.py`, and add journey events in `journey_builder.py`.
+- 新增字典表时,需要同时更新: `schema/*.sql` DDL、`dict_io/schemas.py` 元数据、`dict_io/builtin_loader.py` 内置数据、以及 `seed_data.py` (如果复用现有常量)。

@@ -11,6 +11,25 @@ from meddata_gen.seed_data import ICD10_DIAGNOSES, LAB_ITEMS
 from meddata_gen.clinical.lab_generator import generate_lab_value
 
 
+def _get_lab_items_from_cache(ctx: EventContext):
+    """从 ctx.dict_cache 构建 LAB_ITEMS 兼容结构。
+
+    返回: {category: [(code, name, unit, ref_low, ref_high), ...]} 或 None
+    """
+    cache = ctx.dict_cache.get("lab_items_dict", [])
+    if not cache:
+        return None
+    result: dict = {}
+    for row in cache:
+        if len(row) < 7:
+            continue
+        # row: (item_code, item_name, item_category, loinc_code, unit, ref_low, ref_high, ...)
+        category = row[2]
+        item = (row[0], row[1], row[4], row[5], row[6])
+        result.setdefault(category, []).append(item)
+    return result
+
+
 def register_lis_handlers(materializer) -> None:
     materializer.register("lis", "order_lab", _handle_order_lab)
     materializer.register("lis", "lab_result", _handle_lab_result)
@@ -126,7 +145,8 @@ def _handle_lab_result(
     result_time = event.timestamp
 
     # 选择检验类别和项目
-    category, selected = _select_lab_items(ctx.disease_profile)
+    lab_items = _get_lab_items_from_cache(ctx)
+    category, selected = _select_lab_items(ctx.disease_profile, lab_items)
     if not selected:
         return None
 
@@ -136,7 +156,11 @@ def _handle_lab_result(
     for item in selected:
         # item: (code, name, unit, ref_low, ref_high)
         code, name, unit, ref_low, ref_high = item
-        result_str, result_num, abnormal_flag = generate_lab_value(code, ctx.disease_profile)
+        ref_low_val = float(ref_low) if ref_low is not None else None
+        ref_high_val = float(ref_high) if ref_high is not None else None
+        result_str, result_num, abnormal_flag = generate_lab_value(
+            code, ctx.disease_profile, ref_low=ref_low_val, ref_high=ref_high_val
+        )
 
         counter[0] += 1
         prefix = {"routine": "RR", "blood": "BR", "biochem": "BLR"}[category]
@@ -248,11 +272,17 @@ def _handle_lab_result(
     return results
 
 
-def _select_lab_items(disease_profile):
-    """根据疾病画像选择检验类别和项目。"""
+def _select_lab_items(disease_profile, lab_items=None):
+    """根据疾病画像选择检验类别和项目。
+
+    Args:
+        disease_profile: 疾病画像。
+        lab_items: 可选,覆盖 LAB_ITEMS 的字典数据。
+    """
+    items_source = lab_items if lab_items is not None else LAB_ITEMS
     if not disease_profile or not disease_profile.lab_abnormalities:
         category = random.choice(["routine", "biochem", "blood"])
-        items = LAB_ITEMS.get(category, [])
+        items = items_source.get(category, [])
         n = random.randint(3, 8)
         return category, random.choices(items, k=min(n, len(items)))
 
@@ -261,7 +291,7 @@ def _select_lab_items(disease_profile):
     # 找出包含最多 relevant codes 的 category
     best_cat = None
     best_count = 0
-    for cat, items in LAB_ITEMS.items():
+    for cat, items in items_source.items():
         count = sum(1 for item in items if item[0] in relevant_codes)
         if count > best_count:
             best_count = count
@@ -269,11 +299,11 @@ def _select_lab_items(disease_profile):
 
     if not best_cat or best_count == 0:
         category = random.choice(["routine", "biochem", "blood"])
-        items = LAB_ITEMS.get(category, [])
+        items = items_source.get(category, [])
         n = random.randint(3, 8)
         return category, random.choices(items, k=min(n, len(items)))
 
-    items = LAB_ITEMS[best_cat]
+    items = items_source[best_cat]
     relevant_items = [item for item in items if item[0] in relevant_codes]
     other_items = [item for item in items if item[0] not in relevant_codes]
 

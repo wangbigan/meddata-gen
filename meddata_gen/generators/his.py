@@ -387,6 +387,11 @@ class HISMixin:
         """生成收费明细"""
         rows = []
         fee_types = ["药品费", "检查费", "检验费", "治疗费", "手术费", "床位费", "护理费", "材料费", "诊查费", "其他"]
+        fee_type_to_charge = {
+            "药品费": "药品", "检查费": "检查", "检验费": "检验",
+            "治疗费": "治疗", "手术费": "手术", "床位费": "床位",
+            "护理费": "治疗", "材料费": "材料", "诊查费": "诊查", "其他": None,
+        }
 
         for i in range(count):
             visit = random.choice(self.inpatients + self.outpatients)
@@ -394,14 +399,25 @@ class HISMixin:
             patient_id = visit[1]
             fee_type = random.choice(fee_types)
 
+            # 从 charge_items_dict 抽样（按 fee_type 映射的 charge_type 过滤）
+            charge_type = fee_type_to_charge.get(fee_type)
+            charge = self._sample_dict_by_filter("charge_items_dict", 2, charge_type) if charge_type else self._sample_dict("charge_items_dict")
+            if charge is None:
+                charge = (
+                    f"C{random.randint(1, 999)}",
+                    f"{fee_type}项目{random.randint(1, 999)}",
+                    fee_type,
+                    None, round(random.uniform(1, 5000), 4), None,
+                )
+
             qty = random.randint(1, 20) if fee_type in ["药品费", "材料费"] else 1
-            unit_price = round(random.uniform(1, 5000), 4)
+            unit_price = charge[4] if charge[4] is not None else round(random.uniform(1, 5000), 4)
 
             rows.append((
                 f"FE{str(i+1).zfill(8)}", visit_id, patient_id,
                 fee_type,
-                f"ITEM{random.randint(1000, 99999)}",
-                f"{fee_type}项目{random.randint(1, 999)}",
+                charge[0],   # charge_code → item_code
+                charge[1],   # charge_name → item_name
                 maybe_null("常规", 0.30),
                 maybe_null("次", 0.20) if fee_type != "药品费" else "盒",
                 qty,

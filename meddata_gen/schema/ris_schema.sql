@@ -482,3 +482,29 @@ COMMENT ON COLUMN nuclear_medicine_reports.report_time IS '报告时间';
 COMMENT ON COLUMN nuclear_medicine_reports.create_time IS '记录创建时间';
 
 CREATE INDEX IF NOT EXISTS idx_nuclear_order_id ON nuclear_medicine_reports(order_id);
+
+-- ============================================================
+-- 字典表 (Dictionary Tables)
+-- 通过 meddata-gen dict-template / dict-import 命令由用户填写后导入
+-- ============================================================
+
+-- 检查项目字典
+CREATE TABLE IF NOT EXISTS exam_items_dict (
+    exam_item_code    VARCHAR(20) PRIMARY KEY,
+    exam_item_name    VARCHAR(200) NOT NULL,
+    exam_type         VARCHAR(20) NOT NULL,
+    body_part         VARCHAR(50),
+    contrast_required BOOLEAN DEFAULT FALSE,
+    standard_price    NUMERIC(10,2),
+    duration_min      INT,
+    created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE exam_items_dict IS '检查项目字典:RIS 检查项目主数据';
+COMMENT ON COLUMN exam_items_dict.exam_item_code IS '检查项目编码,主键';
+COMMENT ON COLUMN exam_items_dict.exam_item_name IS '项目名称';
+COMMENT ON COLUMN exam_items_dict.exam_type IS '检查类型:xray/ct/mri/us/nm/intervention';
+COMMENT ON COLUMN exam_items_dict.body_part IS '检查部位';
+COMMENT ON COLUMN exam_items_dict.contrast_required IS '是否需要造影剂';
+COMMENT ON COLUMN exam_items_dict.standard_price IS '标准价格(元)';
+COMMENT ON COLUMN exam_items_dict.duration_min IS '标准时长(分钟)';
+COMMENT ON COLUMN exam_items_dict.created_at IS '导入时间';

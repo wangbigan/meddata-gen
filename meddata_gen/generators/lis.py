@@ -18,6 +18,16 @@ from meddata_gen.seed_data import (
 class LISMixin:
     """LIS（检验信息系统）数据生成。"""
 
+    def _get_lab_items(self, category: str):
+        """从 _dict_cache 获取指定类别的检验项目，回退到 LAB_ITEMS。"""
+        cache = getattr(self, "_dict_cache", {})
+        rows = cache.get("lab_items_dict", [])
+        items = []
+        for row in rows:
+            if len(row) >= 7 and row[2] == category:
+                items.append((row[0], row[1], row[4], row[5], row[6]))
+        return items if items else LAB_ITEMS.get(category, [])
+
     def generate_lab_orders(self, count: int = 60000):
         """生成检验申请"""
         rows = []
@@ -195,15 +205,15 @@ class LISMixin:
 
     def generate_routine_results(self, count: int = 200000):
         """生成临检结果"""
-        self._generate_lab_results("routine_results", count, LAB_ITEMS["routine"], "RT")
+        self._generate_lab_results("routine_results", count, self._get_lab_items("routine"), "RT")
 
     def generate_biochem_results(self, count: int = 150000):
         """生出生化结果"""
-        self._generate_lab_results("biochem_results", count, LAB_ITEMS["biochem"], "BC")
+        self._generate_lab_results("biochem_results", count, self._get_lab_items("biochem"), "BC")
 
     def generate_blood_results(self, count: int = 80000):
         """生成血液结果"""
-        self._generate_lab_results("blood_results", count, LAB_ITEMS["blood"], "BL")
+        self._generate_lab_results("blood_results", count, self._get_lab_items("blood"), "BL")
 
     def generate_microbiology(self, count: int = 12000):
         """生成微生物结果"""
@@ -216,7 +226,9 @@ class LISMixin:
             else:
                 patient_id = f"P{random.randint(1, 999999)}"
 
-            organism = random.choice(MICRO_ORGANISMS)
+            org = self._sample_dict("organism_dict")
+            if org is None:
+                org = random.choice(MICRO_ORGANISMS) + (None, None)
             test_time = random_datetime("2023-01-01", "2024-12-31")
 
             rows.append((
@@ -229,9 +241,9 @@ class LISMixin:
                 f"CUL{random.randint(10000, 99999)}",
                 random.choice(["痰", "血", "尿", "粪便", "脓液", "脑脊液", "胸腹水", "分泌物"]),
                 maybe_null("肺部", 0.30),
-                maybe_null("革兰阴性杆菌", 0.15),
+                maybe_null(org[3] if len(org) > 3 and org[3] else "革兰阴性杆菌", 0.15),
                 maybe_null("培养出细菌", 0.10),
-                organism[0], organism[1],
+                org[0], org[1],
                 maybe_null(f"{random.randint(10, 10000)} CFU/ml", 0.40),
                 random.randint(1, 7),
                 random.randint(1, 5),
@@ -261,7 +273,12 @@ class LISMixin:
             else:
                 patient_id = f"P{random.randint(1, 999999)}"
 
-            antibiotic = random.choice(ANTIBIOTICS)
+            ab = self._sample_dict("antibiotic_dict")
+            if ab is None:
+                ab = random.choice(ANTIBIOTICS) + (None,)
+            org_name = self._sample_dict("organism_dict")
+            if org_name is None:
+                org_name = random.choice(MICRO_ORGANISMS)
             test_time = random_datetime("2023-01-01", "2024-12-31")
 
             rows.append((
@@ -269,8 +286,8 @@ class LISMixin:
                 f"MB{random.randint(1, 12000)}",
                 f"LO{random.randint(1, 60000)}",
                 patient_id,
-                random.choice([o[1] for o in MICRO_ORGANISMS]),
-                antibiotic[0], antibiotic[1],
+                org_name[1] if org_name else "大肠埃希菌",
+                ab[0], ab[1],
                 maybe_null(f"{random.uniform(0.01, 64):.2f}", 0.20),
                 maybe_null(random.randint(6, 40), 0.25),
                 random.choice(["S", "I", "R", "S", "S", "I", "R"]),

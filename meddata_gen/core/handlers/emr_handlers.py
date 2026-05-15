@@ -10,6 +10,18 @@ from meddata_gen.core.handlers._common import maybe, next_id
 from meddata_gen.seed_data import ICD10_DIAGNOSES
 
 
+def _sample_from_ctx(ctx: EventContext, table_name: str, col_idx: int = None, value = None):
+    """从 ctx.dict_cache 中随机抽样。支持按列过滤。"""
+    cache = ctx.dict_cache.get(table_name, [])
+    if not cache:
+        return None
+    if col_idx is not None and value is not None:
+        filtered = [r for r in cache if len(r) > col_idx and r[col_idx] == value]
+        if filtered:
+            return random.choice(filtered)
+    return random.choice(cache)
+
+
 def register_emr_handlers(materializer) -> None:
     materializer.register("emr", "emr_admission_record", _handle_admission_record)
     materializer.register("emr", "daily_progress_note", _handle_progress_note)
@@ -343,20 +355,27 @@ def _handle_surgery_record(
     duration = random.randint(30, 360)
     end_time = start_time + timedelta(minutes=duration)
 
-    if ctx.disease_profile and ctx.disease_profile.typical_surgeries:
-        surgery_name = random.choice(ctx.disease_profile.typical_surgeries)
-        surgery = (surgery_name, "99.9")
-    else:
-        surgery_names = [
-            ("阑尾切除术", "47.0"), ("胆囊切除术", "51.2"), ("胃大部切除术", "43.7"),
-            ("肠切除术", "45.7"), ("脾切除术", "41.5"), ("肝部分切除术", "50.2"),
-            ("甲状腺切除术", "06.4"), ("乳腺切除术", "85.4"), ("剖宫产术", "74.1"),
-            ("子宫切除术", "68.4"), ("髋关节置换术", "81.5"), ("膝关节置换术", "81.5"),
-            ("脊柱融合术", "81.0"), ("开颅术", "01.2"), ("冠状动脉搭桥术", "36.1"),
-            ("心脏瓣膜置换术", "35.2"), ("肺叶切除术", "32.4"), ("肾切除术", "55.5"),
-            ("前列腺切除术", "60.5"), ("骨折内固定术", "79.3"),
-        ]
-        surgery = random.choice(surgery_names)
+    surgery = _sample_from_ctx(ctx, "surgery_dict")
+    if surgery is None:
+        if ctx.disease_profile and ctx.disease_profile.typical_surgeries:
+            surgery_name = random.choice(ctx.disease_profile.typical_surgeries)
+            surgery = (surgery_name, "99.9", None, None, None, None)
+        else:
+            surgery_names = [
+                ("阑尾切除术", "47.0"), ("胆囊切除术", "51.2"), ("胃大部切除术", "43.7"),
+                ("肠切除术", "45.7"), ("脾切除术", "41.5"), ("肝部分切除术", "50.2"),
+                ("甲状腺切除术", "06.4"), ("乳腺切除术", "85.4"), ("剖宫产术", "74.1"),
+                ("子宫切除术", "68.4"), ("髋关节置换术", "81.5"), ("膝关节置换术", "81.5"),
+                ("脊柱融合术", "81.0"), ("开颅术", "01.2"), ("冠状动脉搭桥术", "36.1"),
+                ("心脏瓣膜置换术", "35.2"), ("肺叶切除术", "32.4"), ("肾切除术", "55.5"),
+                ("前列腺切除术", "60.5"), ("骨折内固定术", "79.3"),
+            ]
+            s = random.choice(surgery_names)
+            surgery = (s[1], s[0], None, None, None, None)
+    # surgery: (surgery_code, surgery_name, surgery_level, dept_id, duration, anesthesia)
+    surgery_name = surgery[1] if surgery[1] else "未知手术"
+    surgery_code = surgery[0] if surgery[0] else "99.99"
+    surgery_level = surgery[2] if surgery[2] else random.choice(["I级", "II级", "III级", "IV级"])
 
     # emr_documents
     doc_row = (
@@ -366,7 +385,7 @@ def _handle_surgery_record(
         "住院",
         "手术记录",
         f"手术记录-{rec_id}",
-        maybe(f"{surgery[0]}手术记录...", 0.05),
+        maybe(f"{surgery_name}手术记录...", 0.05),
         ctx.department_id,
         ctx.attending_doctor_id,
         None,
@@ -389,9 +408,9 @@ def _handle_surgery_record(
         ctx.patient_id,
         ctx.visit_id,
         None,  # surgery_id
-        surgery[0],
-        surgery[1],
-        random.choice(["I级", "II级", "III级", "IV级"]),
+        surgery_name,
+        surgery_code,
+        surgery_level,
         maybe(ctx.primary_diagnosis, 0.15),
         maybe(ctx.primary_diagnosis, 0.20),
         ctx.attending_doctor_id,

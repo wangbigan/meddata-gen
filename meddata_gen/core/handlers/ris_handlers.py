@@ -15,6 +15,18 @@ def register_ris_handlers(materializer) -> None:
     materializer.register("ris", "imaging_report", _handle_imaging_report)
 
 
+def _sample_from_ctx(ctx: EventContext, table_name: str, col_idx: int = None, value = None):
+    """从 ctx.dict_cache 中随机抽样。支持按列过滤。"""
+    cache = ctx.dict_cache.get(table_name, [])
+    if not cache:
+        return None
+    if col_idx is not None and value is not None:
+        filtered = [r for r in cache if len(r) > col_idx and r[col_idx] == value]
+        if filtered:
+            return random.choice(filtered)
+    return random.choice(cache)
+
+
 def _infer_modality(exam_name: str) -> str:
     """根据检查名称推断影像模态。"""
     name = exam_name.lower()
@@ -41,12 +53,25 @@ def _handle_order_imaging(
     order_time = event.timestamp
 
     # 选择影像类型和具体项目
+    exam_item_code = None
+    exam_item_name = None
+    modality = None
+
     if ctx.disease_profile and ctx.disease_profile.typical_imaging:
-        exam_item = random.choice(ctx.disease_profile.typical_imaging)
-        modality = _infer_modality(exam_item)
+        exam_item_name = random.choice(ctx.disease_profile.typical_imaging)
+        modality = _infer_modality(exam_item_name)
     else:
-        modality = random.choice(list(RIS_EXAM_TYPES.keys()))
-        exam_item = random.choice(RIS_EXAM_TYPES[modality])
+        exam_row = _sample_from_ctx(ctx, "exam_items_dict")
+        if exam_row:
+            exam_item_code = exam_row[0]
+            exam_item_name = exam_row[1]
+            modality = exam_row[2]
+        else:
+            modality = random.choice(list(RIS_EXAM_TYPES.keys()))
+            exam_item_name = random.choice(RIS_EXAM_TYPES[modality])
+
+    if exam_item_code is None:
+        exam_item_code = f"ITEM{random.randint(100, 999)}"
 
     diagnosis = ctx.primary_diagnosis or random.choice(ICD10_DIAGNOSES)
     diagnosis_name = diagnosis[1] if isinstance(diagnosis, tuple) else diagnosis
@@ -62,8 +87,8 @@ def _handle_order_imaging(
         ctx.attending_doctor_id,
         None,
         modality,
-        f"ITEM{random.randint(100, 999)}",
-        exam_item,
+        exam_item_code,
+        exam_item_name,
         maybe(random.choice(["头部", "胸部", "腹部", "盆腔", "脊柱", "四肢", "心脏", "甲状腺", "乳腺"]), 0.10),
         maybe("平扫+增强", 0.35),
         maybe(diagnosis_name, 0.20),
@@ -71,7 +96,7 @@ def _handle_order_imaging(
         random.choice(["普通", "紧急"]),
         random.choice(["Y", "N"]),
         maybe("无", 0.40),
-        maybe("碘海醇", 0.50) if modality in ["CT", "MRI"] else None,
+        maybe("碘海醇", 0.50) if modality in ["CT", "MRI", "ct", "mri"] else None,
         random.choice(["已申请", "已预约", "已检查", "已报告"]),
         maybe(f"DV{random.randint(1, 15)}", 0.25),
         maybe(order_time + timedelta(hours=random.randint(1, 48)), 0.30),

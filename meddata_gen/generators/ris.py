@@ -78,7 +78,13 @@ class RISMixin:
                 visit_id = f"IV{random.randint(1, 9999999)}"
                 visit_type = random.choice(["住院", "门诊", "急诊", "体检"])
 
-            modality_item = random.choice(exam_items)
+            exam = self._sample_dict("exam_items_dict")
+            if exam is None:
+                modality_item = random.choice(exam_items)
+                exam = (
+                    f"EX{random.randint(1000000, 9999999)}",
+                    modality_item[1], modality_item[0], None, None, None, None,
+                )
             order_time = random_datetime("2023-01-01", "2024-12-31")
 
             rows.append((
@@ -88,9 +94,9 @@ class RISMixin:
                 random.choice([d["id"] for d in self.departments]),
                 random.choice(doctor_ids) if doctor_ids else None,
                 maybe_null(generate_name(), 0.15),
-                modality_item[0],
-                f"ITEM{random.randint(100, 999)}",
-                modality_item[1],
+                exam[2] if exam[2] else "xray",   # exam_type
+                exam[0],                          # exam_item_code
+                exam[1],                          # exam_item_name
                 maybe_null(random.choice(["头部", "胸部", "腹部", "盆腔", "脊柱", "四肢", "心脏", "甲状腺", "乳腺"]), 0.10),
                 maybe_null("平扫+增强", 0.35),
                 maybe_null(random.choice(ICD10_DIAGNOSES)[1], 0.20),

@@ -17,13 +17,18 @@ def generate_lab_value(
     item_code: str,
     disease_profile: Optional[DiseaseProfile] = None,
     severity: Optional[str] = None,
+    ref_low: Optional[float] = None,
+    ref_high: Optional[float] = None,
 ) -> Tuple[str, float, str]:
     """生成单个检验项的结果。
 
     返回: (result_value_str, result_num, abnormal_flag)
     """
-    # 查找参考范围
-    ref = _find_reference(item_code)
+    # 查找参考范围（优先使用传入的参数）
+    if ref_low is not None and ref_high is not None:
+        ref = (ref_low, ref_high)
+    else:
+        ref = _find_reference(item_code)
     if ref is None:
         # 未知项目，返回随机正常值
         return ("0.00", 0.0, "N")

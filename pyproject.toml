@@ -22,6 +22,7 @@ classifiers = [
 dependencies = [
     "psycopg2-binary>=2.9.0",
     "click>=8.0.0",
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +47,7 @@ packages = [
     "meddata_gen.clinical",
     "meddata_gen.quality",
     "meddata_gen.output",
+    "meddata_gen.dict_io",
 ]
 include-package-data = true
 

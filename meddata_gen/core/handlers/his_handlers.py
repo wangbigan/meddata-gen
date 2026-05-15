@@ -15,6 +15,18 @@ from meddata_gen.core.handlers._common import (
 from meddata_gen.seed_data import ICD10_DIAGNOSES
 
 
+def _sample_from_ctx(ctx: EventContext, table_name: str, col_idx: int = None, value = None):
+    """从 ctx.dict_cache 中随机抽样。支持按列过滤。"""
+    cache = ctx.dict_cache.get(table_name, [])
+    if not cache:
+        return None
+    if col_idx is not None and value is not None:
+        filtered = [r for r in cache if len(r) > col_idx and r[col_idx] == value]
+        if filtered:
+            return random.choice(filtered)
+    return random.choice(cache)
+
+
 # ------------------------------------------------------------------
 # 注册入口
 # ------------------------------------------------------------------
@@ -278,19 +290,27 @@ def _handle_order_medication(
 
     # 收费
     item_name = f"药品项目{random.randint(1, 999)}"
+    item_code = f"DRUG{random.randint(1000, 99999)}"
     if ctx.disease_profile and ctx.disease_profile.typical_medications:
-        # 过滤掉空列表的类别
         valid_cats = {k: v for k, v in ctx.disease_profile.typical_medications.items() if v}
         if valid_cats:
             category = random.choice(list(valid_cats.keys()))
             item_name = random.choice(valid_cats[category])
+
+    # 尝试从字典抽样（优先 order_items_dict 药品类）
+    drug_item = _sample_from_ctx(ctx, "order_items_dict", 2, "drug")
+    if drug_item is None:
+        drug_item = _sample_from_ctx(ctx, "charge_items_dict", 2, "药品")
+    if drug_item:
+        item_code = drug_item[0]
+        item_name = drug_item[1]
 
     fee_row = (
         fee_id,
         ctx.visit_id,
         ctx.patient_id,
         "药品费",
-        f"DRUG{random.randint(1000, 99999)}",
+        item_code,
         item_name,
         maybe("0.5g*24片", 0.30),
         "盒",

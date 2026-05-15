@@ -629,3 +629,82 @@ COMMENT ON COLUMN operation_schedules.create_time IS '记录创建时间';
 
 CREATE INDEX IF NOT EXISTS idx_dispense_order_id ON drug_dispenses(order_id);
 CREATE INDEX IF NOT EXISTS idx_schedule_visit_id ON operation_schedules(visit_id);
+
+-- ============================================================
+-- 字典表 (Dictionary Tables)
+-- 通过 meddata-gen dict-template / dict-import 命令由用户填写后导入
+-- ============================================================
+
+-- 诊断字典 (ICD-10)
+CREATE TABLE IF NOT EXISTS diagnosis_dict (
+    icd_code       VARCHAR(20) PRIMARY KEY,
+    diagnosis_name VARCHAR(200) NOT NULL,
+    category       VARCHAR(50),
+    is_chronic     BOOLEAN DEFAULT FALSE,
+    is_infectious  BOOLEAN DEFAULT FALSE,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE diagnosis_dict IS '诊断字典:ICD-10 诊断编码主数据';
+COMMENT ON COLUMN diagnosis_dict.icd_code IS 'ICD-10编码,主键';
+COMMENT ON COLUMN diagnosis_dict.diagnosis_name IS '诊断名称';
+COMMENT ON COLUMN diagnosis_dict.category IS 'ICD-10章节分类';
+COMMENT ON COLUMN diagnosis_dict.is_chronic IS '是否慢性病';
+COMMENT ON COLUMN diagnosis_dict.is_infectious IS '是否传染病';
+COMMENT ON COLUMN diagnosis_dict.created_at IS '导入时间';
+
+-- 手术字典 (ICD-9-CM3)
+CREATE TABLE IF NOT EXISTS surgery_dict (
+    surgery_code    VARCHAR(20) PRIMARY KEY,
+    surgery_name    VARCHAR(200) NOT NULL,
+    surgery_level   VARCHAR(10),
+    department_id   VARCHAR(20),
+    duration_min    INT,
+    anesthesia_type VARCHAR(50),
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE surgery_dict IS '手术字典:ICD-9-CM3 手术操作编码主数据';
+COMMENT ON COLUMN surgery_dict.surgery_code IS 'ICD-9-CM3编码,主键';
+COMMENT ON COLUMN surgery_dict.surgery_name IS '手术名称';
+COMMENT ON COLUMN surgery_dict.surgery_level IS '手术级别:一级/二级/三级/四级';
+COMMENT ON COLUMN surgery_dict.department_id IS '关联科室ID';
+COMMENT ON COLUMN surgery_dict.duration_min IS '标准时长(分钟)';
+COMMENT ON COLUMN surgery_dict.anesthesia_type IS '麻醉方式';
+COMMENT ON COLUMN surgery_dict.created_at IS '导入时间';
+
+-- 医嘱项目字典
+CREATE TABLE IF NOT EXISTS order_items_dict (
+    item_code      VARCHAR(20) PRIMARY KEY,
+    item_name      VARCHAR(200) NOT NULL,
+    item_category  VARCHAR(20) NOT NULL,
+    unit           VARCHAR(20),
+    standard_price NUMERIC(10,2),
+    ref_table      VARCHAR(50),
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE order_items_dict IS '医嘱项目字典:供 orders/order_details 引用';
+COMMENT ON COLUMN order_items_dict.item_code IS '医嘱项目编码,主键';
+COMMENT ON COLUMN order_items_dict.item_name IS '项目名称';
+COMMENT ON COLUMN order_items_dict.item_category IS '项目类别:drug/lab/exam/treatment/surgery';
+COMMENT ON COLUMN order_items_dict.unit IS '计价单位';
+COMMENT ON COLUMN order_items_dict.standard_price IS '标准价格(元)';
+COMMENT ON COLUMN order_items_dict.ref_table IS '关联子字典表(drugs/lab_items_dict/exam_items_dict)';
+COMMENT ON COLUMN order_items_dict.created_at IS '导入时间';
+
+-- 收费项目字典
+CREATE TABLE IF NOT EXISTS charge_items_dict (
+    charge_code    VARCHAR(20) PRIMARY KEY,
+    charge_name    VARCHAR(200) NOT NULL,
+    charge_type    VARCHAR(20) NOT NULL,
+    unit           VARCHAR(20),
+    unit_price     NUMERIC(10,2) NOT NULL,
+    insurance_flag VARCHAR(10),
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE charge_items_dict IS '收费项目字典:供 fee_items/settlements 引用';
+COMMENT ON COLUMN charge_items_dict.charge_code IS '收费项目编码,主键';
+COMMENT ON COLUMN charge_items_dict.charge_name IS '收费项目名称';
+COMMENT ON COLUMN charge_items_dict.charge_type IS '收费类别:床位/诊查/治疗/手术/药品/材料/检查/检验';
+COMMENT ON COLUMN charge_items_dict.unit IS '计价单位';
+COMMENT ON COLUMN charge_items_dict.unit_price IS '单价(元)';
+COMMENT ON COLUMN charge_items_dict.insurance_flag IS '医保类别:甲/乙/丙';
+COMMENT ON COLUMN charge_items_dict.created_at IS '导入时间';

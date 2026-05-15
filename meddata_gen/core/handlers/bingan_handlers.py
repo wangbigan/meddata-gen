@@ -10,6 +10,18 @@ from meddata_gen.core.handlers._common import maybe, next_id
 from meddata_gen.seed_data import ICD10_DIAGNOSES
 
 
+def _sample_from_ctx(ctx: EventContext, table_name: str, col_idx: int = None, value = None):
+    """从 ctx.dict_cache 中随机抽样。支持按列过滤。"""
+    cache = ctx.dict_cache.get(table_name, [])
+    if not cache:
+        return None
+    if col_idx is not None and value is not None:
+        filtered = [r for r in cache if len(r) > col_idx and r[col_idx] == value]
+        if filtered:
+            return random.choice(filtered)
+    return random.choice(cache)
+
+
 def register_bingan_handlers(materializer) -> None:
     materializer.register("bingan", "bingan_record", _handle_bingan_record)
 
@@ -130,12 +142,24 @@ def _handle_bingan_record(
     sx_rows = []
     if random.random() < 0.30:
         sx_id = next_id("BGS", counter_sx)
-        surgery_names = [
-            ("阑尾切除术", "47.0"), ("胆囊切除术", "51.2"), ("胃大部切除术", "43.7"),
-            ("冠状动脉搭桥术", "36.1"), ("心脏瓣膜置换术", "35.2"), ("肺叶切除术", "32.4"),
-            ("髋关节置换术", "81.5"), ("剖宫产术", "74.1"), ("子宫切除术", "68.4"),
-        ]
-        surgery = random.choice(surgery_names)
+        surgery_row = _sample_from_ctx(ctx, "surgery_dict")
+        if surgery_row:
+            # row: (surgery_code, surgery_name, surgery_level, department_id, duration_min, anesthesia_type)
+            surgery_name = surgery_row[1]
+            surgery_code = surgery_row[0]
+            surgery_level = surgery_row[2] or random.choice(["I级", "II级", "III级", "IV级"])
+            anesthesia_type = surgery_row[5] or random.choice(["全麻", "硬膜外麻醉", "腰麻", "局麻"])
+        else:
+            surgery_names = [
+                ("阑尾切除术", "47.0"), ("胆囊切除术", "51.2"), ("胃大部切除术", "43.7"),
+                ("冠状动脉搭桥术", "36.1"), ("心脏瓣膜置换术", "35.2"), ("肺叶切除术", "32.4"),
+                ("髋关节置换术", "81.5"), ("剖宫产术", "74.1"), ("子宫切除术", "68.4"),
+            ]
+            surgery = random.choice(surgery_names)
+            surgery_name = surgery[0]
+            surgery_code = surgery[1]
+            surgery_level = random.choice(["I级", "II级", "III级", "IV级"])
+            anesthesia_type = random.choice(["全麻", "硬膜外麻醉", "腰麻", "局麻"])
         sx_date = ctx.admission_time + timedelta(days=random.randint(1, max(1, days - 1))) if ctx.admission_time else record_time
         sx_row = (
             sx_id,
@@ -143,14 +167,14 @@ def _handle_bingan_record(
             ctx.patient_id,
             ctx.visit_id,
             1,
-            surgery[0],
-            surgery[1],
+            surgery_name,
+            surgery_code,
             sx_date.date(),
-            random.choice(["I级", "II级", "III级", "IV级"]),
+            surgery_level,
             maybe(ctx.patient_name, 0.15),
             maybe(ctx.patient_name, 0.25),
             maybe(ctx.patient_name, 0.25),
-            random.choice(["全麻", "硬膜外麻醉", "腰麻", "局麻"]),
+            anesthesia_type,
             maybe(ctx.patient_name, 0.15),
             random.choice(["甲", "乙", "丙"]),
             random.choice(["I", "II", "III", "IV", "V"]),

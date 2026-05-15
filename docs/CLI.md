@@ -28,6 +28,8 @@ meddata-gen [全局选项] <子命令> [子命令选项]
 | 子命令 | 功能 | 核心文件 |
 |--------|------|----------|
 | `init` | 创建数据库 + 执行 DDL | `cli.py:cmd_init` |
+| `dict-template` | 导出字典 Excel 模板 | `cli.py:cmd_dict_template` |
+| `dict-import` | 导入字典数据 / 加载内置示例 | `cli.py:cmd_dict_import` |
 | `generate` | 生成模拟数据 | `cli.py:cmd_generate` |
 | `run-all` | init + generate + verify 串联 | `cli.py:cmd_run_all` |
 | `verify` | 统计表行数 + 跨库关联率 | `cli.py:cmd_verify` |
@@ -95,6 +97,124 @@ meddata-gen init --dry-run
 ```
 
 **依赖**: 需要本地 PostgreSQL 服务已启动，且 DB_CONFIG 中的用户有创建数据库权限。
+
+---
+
+## dict-template — 导出字典填写模板
+
+### 用法
+
+```bash
+meddata-gen dict-template [选项]
+```
+
+### 参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `-o, --output` | string | `dict_template.xlsx` | 输出 Excel 路径 |
+| `--include` | string | None | 只导出指定字典表，逗号分隔 |
+| `--with-samples/--no-samples` | flag | True | 是否带示例行 |
+
+### 用法示例
+
+```bash
+# 导出全部 8 张字典表（带示例行）
+meddata-gen dict-template -o dict_template.xlsx
+
+# 仅导出 LIS 字典
+meddata-gen dict-template -o lis_dict.xlsx --include lab_items_dict,organism_dict
+
+# 导出空白模板（仅表头）
+meddata-gen dict-template -o blank.xlsx --no-samples
+```
+
+### 模板结构
+
+每个字典 Sheet 包含 3 行表头：
+1. **第 1 行（中文表头）** — 必填列标红 + `*`
+2. **第 2 行（英文列名）** — 程序解析依据，灰底
+3. **第 3 行（字段说明）** — 包含取值范围、主键标识
+4. **第 4 行起** — 示例行（黄底斜体）或用户填写区
+
+枚举列和布尔列自动生成 Excel 数据有效性下拉，冻结前 3 行便于滚动查看。
+
+---
+
+## dict-import — 导入字典数据
+
+### 用法
+
+```bash
+meddata-gen dict-import [选项]
+```
+
+### 参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `-f, --file` | string | None | Excel 文件路径（与 --use-builtin 互斥） |
+| `--use-builtin` | flag | False | 加载内置示例字典 |
+| `--mode` | choice | `upsert` | `upsert` / `replace` / `append` |
+| `--dry-run` | flag | False | 仅校验，不写入数据库 |
+| `--system` | choice | None | 限定 `his` / `lis` / `ris` |
+| `--report` | string | None | 导入报告输出路径（.md） |
+| `--yes` | flag | False | replace 模式跳过二次确认 |
+
+### 用法示例
+
+```bash
+# 加载内置示例字典（推荐快速体验）
+meddata-gen dict-import --use-builtin
+
+# 导入用户填写的模板（dry-run 先校验）
+meddata-gen dict-import -f dict_template.xlsx --dry-run
+meddata-gen dict-import -f dict_template.xlsx
+
+# 仅导入 LIS 子系统
+meddata-gen dict-import -f dict_template.xlsx --system lis
+
+# replace 模式（需二次确认）
+meddata-gen dict-import -f dict_template.xlsx --mode replace --yes
+
+# 生成导入报告
+meddata-gen dict-import -f dict_template.xlsx --report reports/import.md
+```
+
+### 实现逻辑
+
+**源码位置**: `meddata_gen/cli.py:cmd_dict_import` → `meddata_gen/dict_io/importer.py`
+
+```
+1. 如果指定 --use-builtin:
+   - 调用 builtin_loader.load_builtin_dicts()
+   - 遍历 8 张字典表，使用 UPSERT 写入对应数据库
+
+2. 如果指定 -f:
+   a. 加载 Workbook，遍历每个 sheet
+   b. 跳过 _README，按 sheet 名匹配 DICT_TABLES
+   c. 第 2 行英文列名与 schema 对齐（允许只填部分列）
+   d. 第 4 行起逐行读取:
+      - 类型转换（text/int/decimal/bool）
+      - 必填校验
+      - 枚举校验（下拉值）
+      - 主键唯一性校验（sheet 内）
+   e. 按 --mode 写入数据库:
+      - upsert: INSERT ... ON CONFLICT DO UPDATE
+      - replace: TRUNCATE + INSERT
+      - append: INSERT（冲突报错）
+   f. 生成 ImportReport（markdown 表格）
+```
+
+### 校验规则
+
+| 校验项 | 行为 |
+|--------|------|
+| 必填列 | 空值返回错误 |
+| 类型 | text/int/decimal/bool 自动转换 |
+| 枚举 | 值必须在预定义集合内 |
+| 主键唯一 | sheet 内主键不可重复 |
+| 未知 sheet | 跳过并记录警告 |
 
 ---
 
@@ -477,10 +597,13 @@ def _resolve_scale(scale_arg: str) -> float:
 # 1. 初始化数据库
 meddata-gen init
 
-# 2. 用 tiny 规模快速生成（约 50 患者，全表约 1 万行）
+# 2. 加载内置示例字典
+meddata-gen dict-import --use-builtin
+
+# 3. 用 tiny 规模快速生成（约 50 患者，全表约 1 万行）
 meddata-gen generate -s tiny --seed 42
 
-# 3. 验证
+# 4. 验证
 meddata-gen verify
 ```
 
@@ -519,10 +642,28 @@ meddata-gen generate -m his -s small
 meddata-gen generate -m lis -s small
 ```
 
-### 工作流 5: 清空重来
+### 工作流 5: 使用自定义字典
+
+```bash
+# 1. 初始化数据库
+meddata-gen init
+
+# 2. 导出字典模板
+meddata-gen dict-template -o my_dict.xlsx
+
+# 3. 用 Excel 填写后导入（dry-run 先校验）
+meddata-gen dict-import -f my_dict.xlsx --dry-run
+meddata-gen dict-import -f my_dict.xlsx
+
+# 4. 生成数据（generate 会自动检查字典是否已加载）
+meddata-gen generate -s small
+```
+
+### 工作流 6: 清空重来
 
 ```bash
 meddata-gen reset --yes
+meddata-gen dict-import --use-builtin
 meddata-gen run-all -s medium
 ```
 
