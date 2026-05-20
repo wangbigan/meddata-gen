@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: meddata-postgres
+    environment:
+      POSTGRES_USER: ${MEDDATA_DB_USER:-meddata}
+      POSTGRES_PASSWORD: ${MEDDATA_DB_PASSWORD:-meddata}
+      POSTGRES_DB: ${MEDDATA_DB_NAME:-postgres}
+    ports:
+      - "${MEDDATA_DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-scripts:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - meddata-net
+
+volumes:
+  postgres_data:
+
+networks:
+  meddata-net:
+    driver: bridge

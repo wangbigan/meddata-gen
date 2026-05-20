@@ -50,17 +50,63 @@ meddata-gen run-all --scale small
 ## 环境要求
 
 - Python 3.8+
-- PostgreSQL 14+ (本地运行，端口 5432)
+- PostgreSQL 14+
+
+### 方式一：Docker 启动 PostgreSQL（推荐）
+
+无需本地安装 PostgreSQL，一键启动容器化数据库：
 
 ```bash
-pip install -e .
+# 1. 复制环境变量模板
+cp .env.example .env
+
+# 2. 启动 PostgreSQL（自动创建 7 个数据库）
+docker compose up -d
+
+# 3. 安装 meddata-gen
+pip install -e ".[dev]"
+```
+
+停止数据库：
+```bash
+docker compose down
+# 保留数据卷：下次 up 数据还在
+# 彻底删除数据：docker compose down -v
+```
+
+> 如果本地 5432 端口已被占用，修改 `.env` 中的 `MEDDATA_DB_PORT=5433`，并在 `docker compose up -d` 前执行 `export MEDDATA_DB_PORT=5433`。
+
+### 方式二：使用本地 PostgreSQL
+
+确保本地 PostgreSQL 14+ 已运行，然后安装：
+
+```bash
+pip install -e ".[dev]"
 ```
 
 ## 数据库连接配置
 
-修改 `meddata_gen/config.py` 中的 `DB_CONFIG`：
+连接参数优先从环境变量读取，也可直接修改 `meddata_gen/config.py`。
+
+通过 `.env` 文件配置（Docker 方式推荐）：
+
+```bash
+cp .env.example .env
+# 编辑 .env 按需修改
+```
+
+环境变量名：
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `MEDDATA_DB_HOST` | `127.0.0.1` | 数据库主机 |
+| `MEDDATA_DB_PORT` | `5432` | 端口 |
+| `MEDDATA_DB_USER` | `wbg` | 用户名 |
+| `MEDDATA_DB_PASSWORD` | `""` | 密码 |
+| `MEDDATA_DB_NAME` | `postgres` | 管理数据库名 |
 
 ```python
+# meddata_gen/config.py 中的默认值
 DB_CONFIG = {
     "host": "127.0.0.1",
     "port": 5432,

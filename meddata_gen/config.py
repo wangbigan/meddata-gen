@@ -1,14 +1,17 @@
 """医院信息系统模拟数据生成器配置：连接、规模、质量、随机种子。"""
 from __future__ import annotations
 
+import os
+
 # ----- 数据库连接 -----
+# 支持通过环境变量覆盖，便于 Docker 等容器化部署
 
 DB_CONFIG = {
-    "host": "127.0.0.1",
-    "port": 5432,
-    "user": "wbg",
-    "password": "",
-    "database": "postgres",
+    "host": os.getenv("MEDDATA_DB_HOST", "127.0.0.1"),
+    "port": int(os.getenv("MEDDATA_DB_PORT", "5432")),
+    "user": os.getenv("MEDDATA_DB_USER", "wbg"),
+    "password": os.getenv("MEDDATA_DB_PASSWORD", ""),
+    "database": os.getenv("MEDDATA_DB_NAME", "postgres"),
 }
 
 # 7 个子系统数据库
