@@ -8,6 +8,7 @@ from meddata_gen import config
 from meddata_gen.seed_data import (
     ICD10_DIAGNOSES,
     generate_name,
+    generate_phone,
     random_datetime,
     maybe_null,
 )

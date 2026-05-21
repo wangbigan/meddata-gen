@@ -101,7 +101,7 @@ cp .env.example .env
 |--------|--------|------|
 | `MEDDATA_DB_HOST` | `127.0.0.1` | 数据库主机（IP 或域名） |
 | `MEDDATA_DB_PORT` | `5432` | 端口 |
-| `MEDDATA_DB_USER` | `wbg` | 用户名 |
+| `MEDDATA_DB_USER` | `postgres` | 用户名 |
 | `MEDDATA_DB_PASSWORD` | `""` | 密码 |
 | `MEDDATA_DB_NAME` | `postgres` | 管理数据库名 |
 

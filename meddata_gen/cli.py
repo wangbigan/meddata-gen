@@ -68,6 +68,23 @@ def _check_connection(db_config: dict) -> None:
         sys.exit(1)
 
 
+def _check_databases_exist(db_config: dict, dbs: list) -> list:
+    """检查哪些目标数据库已存在。返回已存在的数据库名列表。"""
+    conn = psycopg2.connect(**db_config)
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        existing = []
+        for db_name in dbs:
+            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
+            if cur.fetchone():
+                existing.append(db_name)
+        return existing
+    finally:
+        cur.close()
+        conn.close()
+
+
 # 需要预检查的关键字典表: (数据库, 表名, 中文名)
 _KEY_DICT_TABLES = [
     ("his_db", "diagnosis_dict", "诊断字典"),
@@ -116,6 +133,16 @@ def main() -> None:
     pass
 
 
+def _resolve_db_config(user: Optional[str], password: Optional[str]) -> dict:
+    """根据命令行输入覆盖 DB_CONFIG 的用户名/密码。"""
+    db_config = config.DB_CONFIG.copy()
+    if user:
+        db_config["user"] = user
+    if password:
+        db_config["password"] = password
+    return db_config
+
+
 # ----- init -----
 
 @main.command("init", help="创建数据库并初始化表结构。")
@@ -124,7 +151,33 @@ def main() -> None:
     help="目标模块（his/emr/bingan/lis/ris/ecg/icu/all），可多次指定；默认 all。",
 )
 @click.option("--dry-run", is_flag=True, help="只打印将执行的步骤，不写入数据库。")
-def cmd_init(modules: Tuple[str, ...], dry_run: bool) -> None:
+@click.option(
+    "--force", is_flag=True,
+    help="强制重新初始化：删除已存在的数据库并重新创建（数据不可恢复）。",
+)
+@click.option(
+    "-u", "--user", default=None,
+    help="数据库用户名（覆盖配置）。",
+)
+@click.option(
+    "-p", "--password", default=None,
+    help="数据库密码（覆盖配置）。",
+)
+@click.option(
+    "--interactive-auth", is_flag=True,
+    help="交互式输入用户名和密码。",
+)
+def cmd_init(
+    modules: Tuple[str, ...],
+    dry_run: bool,
+    force: bool,
+    user: Optional[str],
+    password: Optional[str],
+    interactive_auth: bool,
+) -> None:
+    import time
+
+    t0 = time.perf_counter()
     target_modules = _parse_modules(modules)
     target_dbs = [orchestrator.MODULE_DBS[m] for m in target_modules]
 
@@ -134,16 +187,56 @@ def cmd_init(modules: Tuple[str, ...], dry_run: bool) -> None:
         click.secho("[DRY-RUN] 跳过实际执行", fg="yellow")
         return
 
-    _check_connection(config.DB_CONFIG)
+    # 检查数据库是否已存在
+    existing = _check_databases_exist(config.DB_CONFIG, target_dbs)
+
+    need_auth = False
+
+    if existing:
+        if not force:
+            click.secho(f"以下数据库已存在: {', '.join(existing)}", fg="yellow")
+            if not click.confirm("是否删除并重新初始化？"):
+                click.echo("操作已取消")
+                return
+            # 确认删除后，需要输入认证信息
+            need_auth = True
+        else:
+            # --force 时，如果命令行没给凭据，看是否需要交互式
+            need_auth = interactive_auth
+    else:
+        # 数据库都不存在
+        need_auth = interactive_auth
+
+    # 如果需要，交互式输入用户名密码
+    if need_auth:
+        user = click.prompt("数据库用户名")
+        password = click.prompt("数据库密码", hide_input=True, default="")
+
+    db_config = _resolve_db_config(user, password)
+
+    click.echo(f"[计时] 解析参数: {(time.perf_counter() - t0) * 1000:.1f} ms")
+
+    t1 = time.perf_counter()
+    _check_connection(db_config)
+    click.echo(f"[计时] 连接检测完成: {(time.perf_counter() - t1) * 1000:.1f} ms")
 
     click.echo("\n=== 创建数据库 ===")
-    orchestrator.create_databases(config.DB_CONFIG, dbs=target_dbs)
+    t2 = time.perf_counter()
+    try:
+        # 如果数据库已存在（用户已确认或用了 --force），强制重建
+        force_flag = force or bool(existing)
+        orchestrator.create_databases(db_config, dbs=target_dbs, force=force_flag)
+    except RuntimeError as e:
+        click.secho(f"[ERROR] {e}", fg="red")
+        sys.exit(1)
+    click.echo(f"[计时] 创建数据库总耗时: {(time.perf_counter() - t2) * 1000:.1f} ms")
 
     click.echo("\n=== 初始化表结构 ===")
     for db in target_dbs:
-        orchestrator.init_schema(config.DB_CONFIG, db)
+        orchestrator.init_schema(db_config, db)
 
     click.secho("\n[OK] 初始化完成", fg="green")
+    click.echo(f"[计时] 整体耗时: {(time.perf_counter() - t0) * 1000:.1f} ms")
 
     # 引导用户导入字典
     click.echo("")
@@ -278,6 +371,18 @@ def cmd_generate(
     "--enable-rules", is_flag=True,
     help="启用临床规则引擎（仅事件模式有效）。",
 )
+@click.option(
+    "-u", "--user", default=None,
+    help="数据库用户名（覆盖配置）。",
+)
+@click.option(
+    "-p", "--password", default=None,
+    help="数据库密码（覆盖配置）。",
+)
+@click.option(
+    "--interactive-auth", is_flag=True,
+    help="交互式输入用户名和密码。",
+)
 @click.pass_context
 def cmd_run_all(
     ctx: click.Context,
@@ -289,9 +394,16 @@ def cmd_run_all(
     output_format: str,
     output_dir: Optional[str],
     enable_rules: bool,
+    user: Optional[str],
+    password: Optional[str],
+    interactive_auth: bool,
 ) -> None:
+    if interactive_auth:
+        user = click.prompt("数据库用户名")
+        password = click.prompt("数据库密码", hide_input=True, default="")
+
     if not skip_init:
-        ctx.invoke(cmd_init, modules=(), dry_run=False)
+        ctx.invoke(cmd_init, modules=(), dry_run=False, force=False, user=user, password=password, interactive_auth=False)
     ctx.invoke(
         cmd_generate,
         modules=(),

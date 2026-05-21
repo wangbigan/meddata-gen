@@ -9,9 +9,11 @@ import os
 DB_CONFIG = {
     "host": os.getenv("MEDDATA_DB_HOST", "127.0.0.1"),
     "port": int(os.getenv("MEDDATA_DB_PORT", "5432")),
-    "user": os.getenv("MEDDATA_DB_USER", "wbg"),
+    "user": os.getenv("MEDDATA_DB_USER", "postgres"),
     "password": os.getenv("MEDDATA_DB_PASSWORD", ""),
     "database": os.getenv("MEDDATA_DB_NAME", "postgres"),
+    "connect_timeout": int(os.getenv("MEDDATA_DB_CONNECT_TIMEOUT", "5")),
+    "gssencmode": "disable",
 }
 
 # 7 个子系统数据库

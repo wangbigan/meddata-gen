@@ -142,36 +142,77 @@ def _scaled_counts(system_db: str, scale: float) -> Dict[str, int]:
 
 # ----- 数据库初始化 -----
 
-def create_databases(db_config: dict, dbs: Iterable[str] = None) -> None:
-    """创建数据库 + 写入 COMMENT ON DATABASE。"""
+def create_databases(db_config: dict, dbs: Iterable[str] = None, force: bool = False) -> None:
+    """创建数据库 + 写入 COMMENT ON DATABASE。
+
+    Args:
+        db_config: 数据库连接配置。
+        dbs: 要创建的数据库列表，默认 config.DATABASES。
+        force: 为 True 时，删除已存在的数据库并重新创建。
+    """
+    import time
+    t0 = time.perf_counter()
     dbs = list(dbs) if dbs else config.DATABASES
+    t1 = time.perf_counter()
     conn = psycopg2.connect(**db_config)
+    print(f"  [计时] 连接 postgres 数据库: {(time.perf_counter() - t1) * 1000:.1f} ms")
     conn.autocommit = True
     cur = conn.cursor()
     try:
+        # 先统一检查哪些数据库已存在
+        existing = []
+        t2 = time.perf_counter()
         for db_name in dbs:
             cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
             if cur.fetchone():
-                print(f"  [SKIP] 数据库 '{db_name}' 已存在")
-            else:
-                cur.execute(f"CREATE DATABASE {db_name} ENCODING 'UTF8'")
-                print(f"  [OK] 数据库 '{db_name}' 创建成功")
+                existing.append(db_name)
+        print(f"  [计时] 检查数据库存在性: {(time.perf_counter() - t2) * 1000:.1f} ms")
+
+        if existing and not force:
+            raise RuntimeError(
+                f"以下数据库已存在: {', '.join(existing)}。"
+                f"使用 --force 强制重新初始化（将删除原有数据）。"
+            )
+
+        for db_name in dbs:
+            t3 = time.perf_counter()
+            if db_name in existing:
+                # 强制断开后删除
+                cur.execute(
+                    """SELECT pg_terminate_backend(pid)
+                       FROM pg_stat_activity
+                       WHERE datname = %s AND pid <> pg_backend_pid()""",
+                    (db_name,),
+                )
+                cur.execute(f"DROP DATABASE {db_name}")
+                print(f"  [FORCE] 数据库 '{db_name}' 已删除")
+
+            cur.execute(f"CREATE DATABASE {db_name} ENCODING 'UTF8'")
+            print(f"  [OK] 数据库 '{db_name}' 创建成功")
             description = config.DATABASE_DESCRIPTIONS.get(db_name)
             if description:
                 cur.execute(f"COMMENT ON DATABASE {db_name} IS %s", (description,))
                 print(f"  [COMMENT] {db_name} → {description}")
+            print(f"  [计时] {db_name} 处理耗时: {(time.perf_counter() - t3) * 1000:.1f} ms")
     finally:
         cur.close()
         conn.close()
+    print(f"  [计时] create_databases 总耗时: {(time.perf_counter() - t0) * 1000:.1f} ms")
 
 
 def init_schema(db_config: dict, db_name: str) -> None:
     """对指定数据库执行 schema SQL。"""
+    import time
+    t0 = time.perf_counter()
     from meddata_gen import DataGenerator
 
+    t1 = time.perf_counter()
     gen = DataGenerator(db_config).connect(db_name)
+    print(f"    [计时] {db_name} 连接耗时: {(time.perf_counter() - t1) * 1000:.1f} ms")
     try:
+        t2 = time.perf_counter()
         gen.execute_sql_file(schema_path(db_name))
+        print(f"    [计时] {db_name} SQL 执行耗时: {(time.perf_counter() - t2) * 1000:.1f} ms")
         print(f"    [OK] {db_name} 表结构初始化完成")
     except Exception as e:
         gen.rollback()
@@ -179,6 +220,7 @@ def init_schema(db_config: dict, db_name: str) -> None:
         raise
     finally:
         gen.close()
+    print(f"    [计时] {db_name} 总耗时: {(time.perf_counter() - t0) * 1000:.1f} ms")
 
 
 def drop_databases(db_config: dict, dbs: Iterable[str] = None) -> None:

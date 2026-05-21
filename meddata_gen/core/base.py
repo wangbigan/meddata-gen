@@ -60,12 +60,16 @@ class BaseGenerator:
 
     def connect(self, database: Optional[str] = None) -> "BaseGenerator":
         """连接到指定数据库；返回 self 以便链式调用。"""
+        import time
+        t0 = time.perf_counter()
         cfg = self.db_config.copy()
         if database:
             cfg["database"] = database
         self.conn = psycopg2.connect(**cfg)
         self.conn.autocommit = False
         self.cur = self.conn.cursor()
+        elapsed = (time.perf_counter() - t0) * 1000
+        print(f"      [计时-Base] psycopg2.connect('{database or cfg.get('database')}'): {elapsed:.1f} ms")
         return self
 
     def close(self) -> None:
@@ -84,10 +88,18 @@ class BaseGenerator:
 
     def execute_sql_file(self, filepath: str) -> None:
         """执行 SQL 文件（一次性 execute，依赖 PostgreSQL 多语句执行）。"""
+        import time
+        t0 = time.perf_counter()
         with open(filepath, "r", encoding="utf-8") as f:
             sql = f.read()
+        t1 = time.perf_counter()
         self.cur.execute(sql)
+        t2 = time.perf_counter()
         self.commit()
+        t3 = time.perf_counter()
+        print(f"      [计时-Base] 读取 SQL 文件: {(t1 - t0) * 1000:.1f} ms")
+        print(f"      [计时-Base] 执行 SQL: {(t2 - t1) * 1000:.1f} ms")
+        print(f"      [计时-Base] commit: {(t3 - t2) * 1000:.1f} ms")
 
     # ----- 缺陷注入 -----
 

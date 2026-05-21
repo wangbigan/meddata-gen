@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meddata-gen"
-version = "0.1.0"
+version = "0.2.0"
 description = "医院信息系统(HIS/EMR/LIS/RIS/ECG/ICU/病案)模拟数据生成器，含可配置的数据质量缺陷注入"
 readme = "README.md"
 requires-python = ">=3.8"

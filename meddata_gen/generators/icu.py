@@ -360,7 +360,7 @@ class ICUMixin:
                 patient_id = f"P{random.randint(1, 999999)}"
 
             start_time = random_datetime("2023-01-01", "2024-12-31")
-            duration_hours = random.choices(range(4, 73), weights=[5]*10 + [10]*20 + [5]*30 + [2]*10)[0]
+            duration_hours = random.choices(range(4, 73), weights=[5]*10 + [10]*20 + [5]*30 + [2]*9)[0]
             end_time = start_time + timedelta(hours=duration_hours)
             anticoagulant = random.choice(anticoagulants)
 
@@ -452,7 +452,7 @@ class ICUMixin:
                 patient_id = f"P{random.randint(1, 999999)}"
 
             intubation_time = random_datetime("2023-01-01", "2024-12-31")
-            los_hours = random.choices(range(1, 336), weights=[10]*24 + [5]*72 + [2]*240)[0]
+            los_hours = random.choices(range(1, 336), weights=[10]*24 + [5]*72 + [2]*239)[0]
             extubation_time = intubation_time + timedelta(hours=los_hours)
             doctor_ids = [s[0] for s in self.staff if s[10] == "医生"]
 

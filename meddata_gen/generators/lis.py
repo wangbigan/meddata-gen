@@ -11,6 +11,7 @@ from meddata_gen.seed_data import (
     ICD10_DIAGNOSES,
     generate_name,
     random_datetime,
+    random_date_between,
     maybe_null,
 )
 
